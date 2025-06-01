@@ -85,19 +85,19 @@ function generateDailyLogContent() {
 
     let content = '### Green line\n';
     if (categories.green) {
-        content += categories.green.map(renderEntry).join('\n');
+        content += categories.green.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
     } else {
         content += '*No metrocars have been logged on the green line yet.*';
     }
     content += '\n### Yellow line\n';
     if (categories.yellow) {
-        content += categories.yellow.map(renderEntry).join('\n');
+        content += categories.yellow.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
     } else {
         content += '*No metrocars have been logged on the yellow line yet.*';
     }
     if (categories.other) {
         content += '\n### Other workings\n';
-        content += categories.other.map(renderEntry).join('\n');
+        content += categories.other.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
     }
     return content;
 }
