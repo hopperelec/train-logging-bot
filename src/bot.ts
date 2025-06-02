@@ -102,14 +102,23 @@ function generateDailyLogContent() {
     return content;
 }
 
+async function updateLogMessage() {
+    try {
+        await currentLogMessage.edit(generateDailyLogContent());
+    } catch {
+        // If the message was deleted or something went wrong, create a new one
+        currentLogMessage = await logChannel.send(generateDailyLogContent());
+    }
+}
+
 async function logEntry(trn: TRN, entry: GenEntry) {
     todaysMetrocars.set(trn, entry);
-    await currentLogMessage.edit(generateDailyLogContent());
+    await updateLogMessage();
 }
 
 async function removeEntry(trn: TRN) {
     if (todaysMetrocars.delete(trn)) {
-        await currentLogMessage.edit(generateDailyLogContent());
+        await updateLogMessage();
     }
 }
 
