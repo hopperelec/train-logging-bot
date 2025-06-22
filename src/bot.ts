@@ -103,12 +103,10 @@ function generateDailyLogContent() {
 }
 
 async function updateLogMessage() {
-    try {
-        await currentLogMessage.edit(generateDailyLogContent());
-    } catch {
+    await currentLogMessage.edit(generateDailyLogContent()).catch(async () => {
         // If the message was deleted or something went wrong, create a new one
         currentLogMessage = await logChannel.send(generateDailyLogContent());
-    }
+    });
 }
 
 async function logEntry(trn: TRN, entry: GenEntry) {
@@ -122,14 +120,12 @@ async function removeEntry(trn: TRN) {
     }
 }
 
-async function submitForApproval(trn: TRN, entry: GenEntry & { source?: TRN }, interaction: CommandInteraction) {
-    if (!approvalChannel) {
-        await interaction.reply({
-            content: '❌ Only contributors can log metrocars right now.',
-            flags: ["Ephemeral"]
-        });
-        return;
-    }
+async function submitForApproval(
+    trn: TRN,
+    entry: GenEntry & { source?: TRN },
+    user: User
+) {
+    if (!approvalChannel) return '❌ Only contributors can log metrocars right now.';
 
     const embed = new EmbedBuilder()
         .setTitle('Metrocar gen submission')
@@ -137,7 +133,7 @@ async function submitForApproval(trn: TRN, entry: GenEntry & { source?: TRN }, i
         .addFields(
             { name: 'TRN', value: trn, inline: true },
             { name: 'Description', value: entry.description, inline: true },
-            { name: 'Submitted by', value: `<@${interaction.user.id}>`, inline: true }
+            { name: 'Submitted by', value: `<@${user.id}>`, inline: true }
         );
     if (entry.source) {
         embed.addFields({ name: 'Source', value: entry.source });
@@ -161,20 +157,10 @@ async function submitForApproval(trn: TRN, entry: GenEntry & { source?: TRN }, i
         embeds: [embed],
         components: [row]
     });
-    publicSubmissions.set(message,
-        {
-            user: interaction.user,
-            trn,
-            ...entry,
-            previous: todaysMetrocars.get(trn)
-        }
-    )
+    publicSubmissions.set(message, { user, trn, ...entry, previous: todaysMetrocars.get(trn) });
 
-    console.log(`New submission (${message.id}) by @${interaction.user.tag}: ${JSON.stringify({ trn, ...entry})}`);
-    await interaction.reply({
-        content: '📋 Your gen has been submitted for approval by contributors.',
-        flags: ["Ephemeral"]
-    });
+    console.log(`New submission (${message.id}) by @${user.tag}: ${JSON.stringify({ trn, ...entry})}`);
+    return '📋 Your gen has been submitted for approval by contributors.';
 }
 
 function isContributor(member: GuildMember) {
@@ -183,6 +169,7 @@ function isContributor(member: GuildMember) {
 
 async function handleCommandInteraction(interaction: CommandInteraction) {
     if (interaction.commandName === 'log-metrocar') {
+        const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         const description = interaction.options.get('description', true).value as string;
         const source = interaction.options.get('source')?.value as string;
@@ -192,28 +179,24 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
                 source: source || `<@${interaction.user.id}>`
             });
             console.log(`Metrocar "${trn}" logged by contributor @${interaction.user.tag}: ${description} (Source: ${source})`);
-            await interaction.reply({
-                content: `✅ Metrocar "${trn}" has been successfully added to the log!`,
-                flags: ["Ephemeral"]
-            });
+            await deferReplyPromise;
+            interaction.editReply(`✅ Metrocar "${trn}" has been successfully added to the log!`).catch(console.error);
         } else {
-            await submitForApproval(trn, { description, source }, interaction);
+            const message = await submitForApproval(trn, { description, source }, interaction.user);
+            await deferReplyPromise;
+            interaction.editReply(message).catch(console.error);
         }
 
     } else if (interaction.commandName === 'remove-metrocar') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         if (todaysMetrocars.has(trn)) {
+            const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
             await removeEntry(trn);
             console.log(`Metrocar "${trn}" removed from today's log by @${interaction.user.tag}`);
-            await interaction.reply({
-                content: `✅ Metrocar "${trn}" has been successfully removed from today's log.`,
-                flags: ["Ephemeral"]
-            });
+            await deferReplyPromise;
+            interaction.editReply(`✅ Metrocar "${trn}" has been successfully removed from today's log.`).catch(console.error);
         } else {
-            await interaction.reply({
-                content: `❌ Metrocar "${trn}" is not currently logged for today.`,
-                flags: ["Ephemeral"]
-            });
+            interaction.reply(`❌ Metrocar "${trn}" is not currently logged for today.`).catch(console.error);
         }
     }
 }
@@ -223,22 +206,23 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
     const submission = publicSubmissions.get(interaction.message);
     if (!submission) {
-        await interaction.reply({
+        interaction.reply({
             content: '❌ This submissions no longer exists.',
             flags: ["Ephemeral"]
-        });
+        }).catch(console.error);
         return;
     }
 
     const member = interaction.guild?.members.cache.get(interaction.user.id);
     if (!isContributor(member)) {
-        await interaction.reply({
+        interaction.reply({
             content: '❌ You do not have permission to manage submissions.',
             flags: ["Ephemeral"]
-        });
+        }).catch(console.error);
         return;
     }
 
+    const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
     if (action === 'approve') {
         submission.previous = todaysMetrocars.get(submission.trn);
         await logEntry(submission.trn, { description: submission.description, source: submission.source || `<@${submission.user.id}>` });
@@ -255,7 +239,8 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         if (submission.source) {
             embed.addFields({ name: 'Source', value: submission.source });
         }
-        await interaction.update({
+        await deferUpdatePromise;
+        interaction.editReply({
             embeds: [embed],
             components: [
                 new ActionRowBuilder<ButtonBuilder>()
@@ -273,7 +258,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
                             .setEmoji('↩️')
                     )
             ]
-        });
+        }).catch(console.error);
     } else if (action === 'deny' || action === 'undo') {
         if (action === 'undo') {
             if (submission.previous) {
@@ -295,7 +280,8 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         if (submission.source) {
             embed.addFields({ name: 'Source', value: submission.source });
         }
-        await interaction.update({
+        await deferUpdatePromise;
+        interaction.editReply({
             embeds: [embed],
             components: [
                 new ActionRowBuilder<ButtonBuilder>()
@@ -313,7 +299,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
                             .setEmoji('❌')
                     )
             ]
-        });
+        }).catch(console.error);
     }
 }
 
