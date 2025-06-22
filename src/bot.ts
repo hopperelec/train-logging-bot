@@ -8,7 +8,7 @@ import {
     ButtonBuilder,
     ButtonStyle,
     ButtonInteraction,
-    Message, GuildMember, User
+    Message, User, Guild
 } from 'discord.js';
 import { config } from 'dotenv';
 
@@ -16,6 +16,7 @@ config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 const APPROVAL_CHANNEL_ID = process.env.APPROVAL_CHANNEL_ID;
+const CONTRIBUTOR_GUILD_ID = process.env.CONTRIBUTOR_GUILD_ID;
 const CONTRIBUTOR_ROLE_ID = process.env.CONTRIBUTOR_ROLE_ID;
 if (!DISCORD_TOKEN) {
     console.error('Missing DISCORD_TOKEN environment variable.');
@@ -28,8 +29,12 @@ if (!LOG_CHANNEL_ID) {
 if (!APPROVAL_CHANNEL_ID) {
     console.warn('Missing APPROVAL_CHANNEL_ID environment variable. Non-contributors will not be able to submit entries for approval.');
 }
-if (!CONTRIBUTOR_ROLE_ID) {
-    console.warn('Missing CONTRIBUTOR_ROLE_ID environment variable. Anyone will be able to log entries.');
+if (!CONTRIBUTOR_GUILD_ID !== !CONTRIBUTOR_ROLE_ID) {
+    console.error('Both CONTRIBUTOR_GUILD_ID and CONTRIBUTOR_ROLE_ID must be set if one is set.');
+    process.exit(1);
+}
+if (!CONTRIBUTOR_GUILD_ID) {
+    console.warn('Missing CONTRIBUTOR_GUILD_ID and CONTRIBUTOR_ROLE_ID environment variables. Anyone will be able to log entries.');
 }
 
 const client = new Client({
@@ -47,6 +52,7 @@ type GenEntry = {
 
 let logChannel: TextChannel;
 let approvalChannel: TextChannel;
+let contributorGuild: Guild;
 let currentLogMessage: Message;
 const todaysMetrocars = new Map<TRN, GenEntry>();
 const publicSubmissions = new Map<Message, GenEntry & {
@@ -163,8 +169,8 @@ async function submitForApproval(
     return '📋 Your gen has been submitted for approval by contributors.';
 }
 
-function isContributor(member: GuildMember) {
-    return !CONTRIBUTOR_ROLE_ID || member.roles.cache.some(role => role.id === CONTRIBUTOR_ROLE_ID);
+function isContributor(user: User) {
+    return !contributorGuild || contributorGuild.members.cache.get(user.id).roles.cache.some(role => role.id === CONTRIBUTOR_ROLE_ID);
 }
 
 async function handleCommandInteraction(interaction: CommandInteraction) {
@@ -173,7 +179,7 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         const description = interaction.options.get('description', true).value as string;
         const source = interaction.options.get('source')?.value as string;
-        if (isContributor(interaction.guild?.members.cache.get(interaction.user.id))) {
+        if (isContributor(interaction.user)) {
             await logEntry(trn, {
                 description,
                 source: source || `<@${interaction.user.id}>`
@@ -213,8 +219,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         return;
     }
 
-    const member = interaction.guild?.members.cache.get(interaction.user.id);
-    if (!isContributor(member)) {
+    if (!isContributor(interaction.user)) {
         interaction.reply({
             content: '❌ You do not have permission to manage submissions.',
             flags: ["Ephemeral"]
@@ -226,7 +231,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
     if (action === 'approve') {
         submission.previous = todaysMetrocars.get(submission.trn);
         await logEntry(submission.trn, { description: submission.description, source: submission.source || `<@${submission.user.id}>` });
-        console.log(`Submission ${interaction.message.id} approved by @${member.user.tag}`);
+        console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
         const embed = new EmbedBuilder()
             .setTitle('Metrocar entry approved')
             .setColor(0x00ff00)
@@ -267,7 +272,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
                 await removeEntry(submission.trn);
             }
         }
-        console.log(`Submission ${interaction.message.id} denied by @${member.user.tag}`);
+        console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
         const embed = new EmbedBuilder()
             .setTitle('Metrocar entry denied')
             .setColor(0xff0000)
@@ -321,6 +326,11 @@ client.once('ready', async () => {
     approvalChannel = client.channels.cache.get(APPROVAL_CHANNEL_ID) as TextChannel;
     if (!approvalChannel) {
         console.error(`Approval channel with ID ${APPROVAL_CHANNEL_ID} not found.`);
+        process.exit(1);
+    }
+    contributorGuild = client.guilds.cache.get(CONTRIBUTOR_GUILD_ID);
+    if (CONTRIBUTOR_GUILD_ID && !contributorGuild) {
+        console.error(`Contributor guild with ID ${CONTRIBUTOR_GUILD_ID} not found.`);
         process.exit(1);
     }
 
