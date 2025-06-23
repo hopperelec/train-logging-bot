@@ -8,7 +8,7 @@ import {
     ButtonBuilder,
     ButtonStyle,
     ButtonInteraction,
-    Message, User, Guild
+    Message, User, Guild, AttachmentPayload,
 } from 'discord.js';
 import { config } from 'dotenv';
 
@@ -36,6 +36,8 @@ if (!CONTRIBUTOR_GUILD_ID !== !CONTRIBUTOR_ROLE_ID) {
 if (!CONTRIBUTOR_GUILD_ID) {
     console.warn('Missing CONTRIBUTOR_GUILD_ID and CONTRIBUTOR_ROLE_ID environment variables. Anyone will be able to log entries.');
 }
+
+const MAX_SEARCH_RESULTS = 10; // Maximum number of search results to return
 
 const client = new Client({
     intents: [
@@ -80,7 +82,7 @@ function renderEntry(entry: { trn: TRN } & GenEntry) {
     return `${entry.trn} - ${entry.description}\n-# ${entry.source}`;
 }
 
-function generateDailyLogContent() {
+function generateDailyLogContent(): string | { content: string; files: [AttachmentPayload] } {
     if (todaysTrains.size === 0) return '*No trains have been logged yet today. Check back here later!*';
 
     const categories: Record<string, ({ trn: TRN } & GenEntry)[]> = {};
@@ -105,6 +107,15 @@ function generateDailyLogContent() {
     if (categories.other) {
         content += '\n### Other workings\n';
         content += categories.other.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
+    }
+    if (content.length > 2000) {
+        return {
+            content: "Today's log is too long to display as a message, so it has been attached as a file.",
+            files: [{
+                name: `log-${new Date().toISOString().split('T')[0]}.txt`,
+                attachment: Buffer.from(content, 'utf-8')
+            }]
+        }
     }
     return content;
 }
@@ -233,18 +244,19 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
         const results = Array.from(todaysTrains.entries())
             .filter(([_, entry]) => entry.description.toLowerCase().includes(query));
         if (results.length > 0) {
-            await interaction.reply({
-                embeds: [
-                    {
-                        title: `Search results for "${query}"`,
-                        fields: results.map(([trn, entry]) => ({
-                            name: trn,
-                            value: `${entry.description}\n-# ${entry.source}`,
-                            inline: false
-                        })),
-                    }
-                ]
-            });
+            const embed = new EmbedBuilder()
+                .setTitle(`🔍 Search results for "${query}"`)
+                .addFields(
+                    results.map(([trn, entry]) => ({
+                        name: trn,
+                        value: `${entry.description}\n-# ${entry.source}`,
+                        inline: false
+                    })).slice(0, MAX_SEARCH_RESULTS)
+                );
+            if (results.length > MAX_SEARCH_RESULTS) {
+                embed.setFooter({ text: `Only showing first ${MAX_SEARCH_RESULTS} results out of ${results.length}` });
+            }
+            await interaction.reply({ embeds: [embed] });
         } else {
             await interaction.reply({
                 content: `❌ No entries found matching "${query}".`
@@ -394,18 +406,21 @@ client.once('ready', async () => {
                     name: 'trn',
                     type: 3, // string
                     description: 'What the train is running as (e.g., "T101", "brake testing"...)',
-                    required: true
+                    required: true,
+                    maxLength: 32
                 },
                 {
                     name: 'description',
                     type: 3, // string
                     description: 'A description of the train (e.g., "4073+4081")',
-                    required: true
+                    required: true,
+                    maxLength: 128
                 },
                 {
                     name: 'source',
                     type: 3, // string
                     description: 'Source of the information (defaults to you)',
+                    maxLength: 128
                 }
             ]
         },
@@ -417,7 +432,8 @@ client.once('ready', async () => {
                     name: 'trn',
                     type: 3, // string
                     description: 'The TRN of the train to remove',
-                    required: true
+                    required: true,
+                    maxLength: 32
                 }
             ]
         },
@@ -429,7 +445,8 @@ client.once('ready', async () => {
                     name: 'trn',
                     type: 3, // string
                     description: 'The TRN of the train to look up (e.g., "T101")',
-                    required: true
+                    required: true,
+                    maxLength: 32
                 }
             ]
         },
@@ -441,7 +458,8 @@ client.once('ready', async () => {
                     name: 'query',
                     type: 3, // string
                     description: 'Text to search for in train descriptions',
-                    required: true
+                    required: true,
+                    maxLength: 16
                 }
             ]
         },
