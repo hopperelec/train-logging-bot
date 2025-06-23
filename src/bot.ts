@@ -54,7 +54,7 @@ let logChannel: TextChannel;
 let approvalChannel: TextChannel;
 let contributorGuild: Guild;
 let currentLogMessage: Message;
-const todaysMetrocars = new Map<TRN, GenEntry>();
+const todaysTrains = new Map<TRN, GenEntry>();
 const publicSubmissions = new Map<Message, GenEntry & {
     user: User;
     trn: TRN;
@@ -80,10 +80,10 @@ function renderEntry(entry: { trn: TRN } & GenEntry) {
 }
 
 function generateDailyLogContent() {
-    if (todaysMetrocars.size === 0) return '*No metrocars have been logged yet today. Check back here later!*';
+    if (todaysTrains.size === 0) return '*No trains have been logged yet today. Check back here later!*';
 
     const categories: Record<string, ({ trn: TRN } & GenEntry)[]> = {};
-    for (const [trn, entry] of todaysMetrocars.entries()) {
+    for (const [trn, entry] of todaysTrains.entries()) {
         const line = categorizeTRN(trn);
         if (!categories[line]) categories[line] = [];
         categories[line].push({ trn, ...entry });
@@ -93,13 +93,13 @@ function generateDailyLogContent() {
     if (categories.green) {
         content += categories.green.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
     } else {
-        content += '*No metrocars have been logged on the green line yet.*';
+        content += '*No trains have been logged on the green line yet.*';
     }
     content += '\n### Yellow line\n';
     if (categories.yellow) {
         content += categories.yellow.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
     } else {
-        content += '*No metrocars have been logged on the yellow line yet.*';
+        content += '*No trains have been logged on the yellow line yet.*';
     }
     if (categories.other) {
         content += '\n### Other workings\n';
@@ -116,12 +116,12 @@ async function updateLogMessage() {
 }
 
 async function logEntry(trn: TRN, entry: GenEntry) {
-    todaysMetrocars.set(trn, entry);
+    todaysTrains.set(trn, entry);
     await updateLogMessage();
 }
 
 async function removeEntry(trn: TRN) {
-    if (todaysMetrocars.delete(trn)) {
+    if (todaysTrains.delete(trn)) {
         await updateLogMessage();
     }
 }
@@ -131,10 +131,10 @@ async function submitForApproval(
     entry: GenEntry & { source?: TRN },
     user: User
 ) {
-    if (!approvalChannel) return '❌ Only contributors can log metrocars right now.';
+    if (!approvalChannel) return '❌ Only contributors can log trains right now.';
 
     const embed = new EmbedBuilder()
-        .setTitle('Metrocar gen submission')
+        .setTitle('Train gen submission')
         .setColor(0xff9900)
         .addFields(
             { name: 'TRN', value: trn, inline: true },
@@ -163,7 +163,7 @@ async function submitForApproval(
         embeds: [embed],
         components: [row]
     });
-    publicSubmissions.set(message, { user, trn, ...entry, previous: todaysMetrocars.get(trn) });
+    publicSubmissions.set(message, { user, trn, ...entry, previous: todaysTrains.get(trn) });
 
     console.log(`New submission (${message.id}) by @${user.tag}: ${JSON.stringify({ trn, ...entry})}`);
     return '📋 Your gen has been submitted for approval by contributors.';
@@ -174,7 +174,7 @@ function isContributor(user: User) {
 }
 
 async function handleCommandInteraction(interaction: CommandInteraction) {
-    if (interaction.commandName === 'log-metrocar') {
+    if (interaction.commandName === 'log-train') {
         const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         const description = interaction.options.get('description', true).value as string;
@@ -184,25 +184,25 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
                 description,
                 source: source || `<@${interaction.user.id}>`
             });
-            console.log(`Metrocar "${trn}" logged by contributor @${interaction.user.tag}: ${description} (Source: ${source})`);
+            console.log(`Train "${trn}" logged by contributor @${interaction.user.tag}: ${description} (Source: ${source})`);
             await deferReplyPromise;
-            interaction.editReply(`✅ Metrocar "${trn}" has been successfully added to the log!`).catch(console.error);
+            interaction.editReply(`✅ Train "${trn}" has been successfully added to the log!`).catch(console.error);
         } else {
             const message = await submitForApproval(trn, { description, source }, interaction.user);
             await deferReplyPromise;
             interaction.editReply(message).catch(console.error);
         }
 
-    } else if (interaction.commandName === 'remove-metrocar') {
+    } else if (interaction.commandName === 'remove-train') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
-        if (todaysMetrocars.has(trn)) {
+        if (todaysTrains.has(trn)) {
             const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
             await removeEntry(trn);
-            console.log(`Metrocar "${trn}" removed from today's log by @${interaction.user.tag}`);
+            console.log(`Train "${trn}" removed from today's log by @${interaction.user.tag}`);
             await deferReplyPromise;
-            interaction.editReply(`✅ Metrocar "${trn}" has been successfully removed from today's log.`).catch(console.error);
+            interaction.editReply(`✅ Train "${trn}" has been successfully removed from today's log.`).catch(console.error);
         } else {
-            interaction.reply(`❌ Metrocar "${trn}" is not currently logged for today.`).catch(console.error);
+            interaction.reply(`❌ Train "${trn}" is not currently logged for today.`).catch(console.error);
         }
     }
 }
@@ -229,11 +229,11 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
     const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
     if (action === 'approve') {
-        submission.previous = todaysMetrocars.get(submission.trn);
+        submission.previous = todaysTrains.get(submission.trn);
         await logEntry(submission.trn, { description: submission.description, source: submission.source || `<@${submission.user.id}>` });
         console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
         const embed = new EmbedBuilder()
-            .setTitle('Metrocar entry approved')
+            .setTitle('Train entry approved')
             .setColor(0x00ff00)
             .setDescription(`Approved by <@${interaction.user.id}>`)
             .addFields(
@@ -274,7 +274,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         }
         console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
         const embed = new EmbedBuilder()
-            .setTitle('Metrocar entry denied')
+            .setTitle('Train entry denied')
             .setColor(0xff0000)
             .setDescription(`Denied by <@${interaction.user.id}>`)
             .addFields(
@@ -309,7 +309,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 }
 
 async function startNewLog() {
-    todaysMetrocars.clear();
+    todaysTrains.clear();
     publicSubmissions.clear();
     currentLogMessage = await logChannel.send(generateDailyLogContent());
     console.log(`Started new log for ${new Date().toISOString().split('T')[0]}`);
@@ -336,19 +336,19 @@ client.once('ready', async () => {
 
     await client.application.commands.set([
         {
-            name: 'log-metrocar',
-            description: 'Log a metrocar entry for the day.',
+            name: 'log-train',
+            description: 'Log a train entry for the day.',
             options: [
                 {
                     name: 'trn',
                     type: 3, // string
-                    description: 'What the metrocar is running as (e.g., "T101", "brake testing"...)',
+                    description: 'What the train is running as (e.g., "T101", "brake testing"...)',
                     required: true
                 },
                 {
                     name: 'description',
                     type: 3, // string
-                    description: 'A description of the metrocar (e.g., "4073+4081")',
+                    description: 'A description of the train (e.g., "4073+4081")',
                     required: true
                 },
                 {
@@ -359,13 +359,13 @@ client.once('ready', async () => {
             ]
         },
         {
-            name: 'remove-metrocar',
-            description: "Remove a metrocar entry from today's log.",
+            name: 'remove-train',
+            description: "Remove a train entry from today's log.",
             options: [
                 {
                     name: 'trn',
                     type: 3, // string
-                    description: 'The TRN of the metrocar to remove',
+                    description: 'The TRN of the train to remove',
                     required: true
                 }
             ]
