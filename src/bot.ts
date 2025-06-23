@@ -204,6 +204,51 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
         } else {
             interaction.reply(`❌ Train "${trn}" is not currently logged for today.`).catch(console.error);
         }
+
+    } else if (interaction.commandName === 'logged-trn') {
+        const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
+        const entry = todaysTrains.get(trn);
+        if (entry) {
+            await interaction.reply({
+                embeds: [
+                    {
+                        title: `Logged entry for ${trn}`,
+                        fields: [
+                            { name: 'Description', value: entry.description, inline: true },
+                            { name: 'Source', value: entry.source, inline: true }
+                        ]
+                    }
+                ]
+            });
+        } else {
+            await interaction.reply({
+                content: `❌ No entry found for "${trn}" in today's log.`,
+                flags: ["Ephemeral"]
+            });
+        }
+
+    } else if (interaction.commandName === 'search-logged-trains') {
+        const query = (interaction.options.get('query', true).value as string).toLowerCase();
+        const results = Array.from(todaysTrains.entries())
+            .filter(([_, entry]) => entry.description.toLowerCase().includes(query));
+        if (results.length > 0) {
+            await interaction.reply({
+                embeds: [
+                    {
+                        title: `Search results for "${query}"`,
+                        fields: results.map(([trn, entry]) => ({
+                            name: trn,
+                            value: `${entry.description}\n-# ${entry.source}`,
+                            inline: false
+                        })),
+                    }
+                ]
+            });
+        } else {
+            await interaction.reply({
+                content: `❌ No entries found matching "${query}".`
+            });
+        }
     }
 }
 
@@ -366,6 +411,30 @@ client.once('ready', async () => {
                     name: 'trn',
                     type: 3, // string
                     description: 'The TRN of the train to remove',
+                    required: true
+                }
+            ]
+        },
+        {
+            name: 'logged-trn',
+            description: 'Get the currently logged information for a given TRN.',
+            options: [
+                {
+                    name: 'trn',
+                    type: 3, // string
+                    description: 'The TRN of the train to look up (e.g., "T101")',
+                    required: true
+                }
+            ]
+        },
+        {
+            name: 'search-logged-trains',
+            description: "Search through the descriptions of all of today's trains.",
+            options: [
+                {
+                    name: 'query',
+                    type: 3, // string
+                    description: 'Text to search for in train descriptions',
                     required: true
                 }
             ]
