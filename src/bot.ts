@@ -53,6 +53,7 @@ type GenEntry = {
 let logChannel: TextChannel;
 let approvalChannel: TextChannel;
 let contributorGuild: Guild;
+let logTrainCommandId: string;
 let currentLogMessage: Message;
 const todaysTrains = new Map<TRN, GenEntry>();
 const publicSubmissions = new Map<Message, GenEntry & {
@@ -249,6 +250,11 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
                 content: `❌ No entries found matching "${query}".`
             });
         }
+
+    } else if (interaction.commandName === 'usage') {
+        await interaction.reply({
+            content: `**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. To submit a train for the day, use </log-train:${logTrainCommandId}>. As you type the command, Discord will show you the command options and describe what to put in them. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Contributors may also post it in <#1333358653721415710> or <#1377249182116479027> if relevant.`
+        });
     }
 }
 
@@ -379,7 +385,7 @@ client.once('ready', async () => {
         process.exit(1);
     }
 
-    await client.application.commands.set([
+    const commands = await client.application.commands.set([
         {
             name: 'log-train',
             description: 'Log a train entry for the day.',
@@ -438,8 +444,13 @@ client.once('ready', async () => {
                     required: true
                 }
             ]
+        },
+        {
+            name: 'usage',
+            description: 'Sends a message explaining basic usage of the bot.'
         }
     ]);
+    logTrainCommandId = commands.find(cmd => cmd.name === 'log-train').id;
 
     await startNewLog();
     const now = new Date();
