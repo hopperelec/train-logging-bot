@@ -364,6 +364,14 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
         }
 
     } else if (interaction.commandName === 'remove-train') {
+        if (!isContributor(interaction.user)) {
+            await interaction.reply({
+                content: '❌ Only contributors can remove trains from the log.',
+                flags: ["Ephemeral"]
+            });
+            return;
+        }
+
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         if (todaysTrains.has(trn)) {
             const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
