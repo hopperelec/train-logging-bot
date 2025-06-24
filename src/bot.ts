@@ -233,18 +233,19 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
     submission.previous = todaysTrains.get(submission.trn);
     await addEntryToLog(submission.trn, { description: submission.description, source: submission.source || `<@${submission.user.id}>` });
     console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
-    const embed = new EmbedBuilder()
-        .setTitle('Train entry approved')
-        .setColor(0x00ff00)
-        .setDescription(`Approved by <@${interaction.user.id}>`)
-        .addFields(
-            { name: 'TRN', value: submission.trn, inline: true },
-            { name: 'Description', value: submission.description, inline: true },
-            { name: 'Submitted by', value: `<@${submission.user.id}>`, inline: true },
-            { name: 'Source', value: submission.source }
-        );
     return {
-        embeds: [embed],
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('Train entry approved')
+                .setColor(0x00ff00)
+                .setDescription(`Approved by <@${interaction.user.id}>`)
+                .addFields(
+                    { name: 'TRN', value: submission.trn, inline: true },
+                    { name: 'Description', value: submission.description, inline: true },
+                    { name: 'Source', value: submission.source, inline: true },
+                    { name: 'Submitted by', value: `<@${submission.user.id}>` }
+                )
+        ],
         components: [
             new ActionRowBuilder<ButtonBuilder>()
                 .addComponents(
@@ -266,18 +267,19 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
 
 async function denySubmission(interaction: ButtonInteraction, submission: Submission) {
     console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
-    const embed = new EmbedBuilder()
-        .setTitle('Train entry denied')
-        .setColor(0xff0000)
-        .setDescription(`Denied by <@${interaction.user.id}>`)
-        .addFields(
-            { name: 'TRN', value: submission.trn, inline: true },
-            { name: 'Description', value: submission.description, inline: true },
-            { name: 'Submitted by', value: `<@${submission.user.id}>`, inline: true },
-            { name: 'Source', value: submission.source }
-        );
     return {
-        embeds: [embed],
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('Train entry denied')
+                .setColor(0xff0000)
+                .setDescription(`Denied by <@${interaction.user.id}>`)
+                .addFields(
+                    { name: 'TRN', value: submission.trn, inline: true },
+                    { name: 'Description', value: submission.description, inline: true },
+                    { name: 'Source', value: submission.source, inline: true },
+                    { name: 'Submitted by', value: `<@${submission.user.id}>` }
+                )
+        ],
         components: [
             new ActionRowBuilder<ButtonBuilder>()
                 .addComponents(
