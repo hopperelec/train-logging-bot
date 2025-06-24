@@ -8,7 +8,7 @@ import {
     ButtonBuilder,
     ButtonStyle,
     ButtonInteraction,
-    Message, User, Guild, AttachmentPayload,
+    Message, User, Guild, AttachmentPayload, Snowflake,
 } from 'discord.js';
 import { config } from 'dotenv';
 
@@ -51,6 +51,11 @@ type GenEntry = {
     description: string;
     source: string;
 }
+type Submission = GenEntry & {
+    user: User;
+    trn: TRN;
+    previous?: GenEntry; // previous entry (for undoing)
+}
 
 let logChannel: TextChannel;
 let approvalChannel: TextChannel;
@@ -58,12 +63,11 @@ let contributorGuild: Guild;
 let logTrainCommandId: string;
 let currentLogMessage: Message;
 const todaysTrains = new Map<TRN, GenEntry>();
-const publicSubmissions = new Map<Message, GenEntry & {
+const unconfirmedEntries = new Map<string, GenEntry & {
     user: User;
     trn: TRN;
-    source?: string;
-    previous?: GenEntry; // previous entry (for undoing)
-}>();
+}>;
+const publicSubmissions = new Map<Snowflake, Submission>();
 
 function normalizeTRN(trn: TRN): TRN {
     return /^\d{3}$/.test(trn) ? `T${trn}` : trn;
@@ -108,16 +112,14 @@ function generateDailyLogContent(): string | { content: string; files: [Attachme
         content += '\n### Other workings\n';
         content += categories.other.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
     }
-    if (content.length > 2000) {
-        return {
-            content: "Today's log is too long to display as a message, so it has been attached as a file.",
-            files: [{
-                name: `log-${new Date().toISOString().split('T')[0]}.txt`,
-                attachment: Buffer.from(content, 'utf-8')
-            }]
-        }
+    if (content.length <= 2000) return content;
+    return {
+        content: "Today's log is too long to display as a message, so it has been attached as a file.",
+        files: [{
+            name: `log-${new Date().toISOString().split('T')[0]}.txt`,
+            attachment: Buffer.from(content, 'utf-8')
+        }]
     }
-    return content;
 }
 
 async function updateLogMessage() {
@@ -127,58 +129,181 @@ async function updateLogMessage() {
     });
 }
 
-async function logEntry(trn: TRN, entry: GenEntry) {
+async function addEntryToLog(trn: TRN, entry: GenEntry) {
     todaysTrains.set(trn, entry);
     await updateLogMessage();
 }
 
-async function removeEntry(trn: TRN) {
+async function removeEntryFromLog(trn: TRN) {
     if (todaysTrains.delete(trn)) {
         await updateLogMessage();
     }
 }
 
-async function submitForApproval(
-    trn: TRN,
-    entry: GenEntry & { source?: TRN },
-    user: User
-) {
+async function submitNewEntry(user: User, trn: TRN, entry: GenEntry) {
+    if (isContributor(user)) {
+        await addEntryToLog(trn, entry);
+        console.log(`Train "${trn}" logged by contributor @${user.tag}: ${entry.description} (Source: ${entry.source})`);
+        return `✅ Train "${trn}" has been successfully added to the log!`;
+    }
     if (!approvalChannel) return '❌ Only contributors can log trains right now.';
 
-    const embed = new EmbedBuilder()
-        .setTitle('Train gen submission')
-        .setColor(0xff9900)
-        .addFields(
-            { name: 'TRN', value: trn, inline: true },
-            { name: 'Description', value: entry.description, inline: true },
-            { name: 'Submitted by', value: `<@${user.id}>`, inline: true }
-        );
-    if (entry.source) {
-        embed.addFields({ name: 'Source', value: entry.source });
-    }
-
-    const row = new ActionRowBuilder<ButtonBuilder>()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId(`approve`)
-                .setLabel('Approve')
-                .setStyle(ButtonStyle.Success)
-                .setEmoji('✅'),
-            new ButtonBuilder()
-                .setCustomId(`deny`)
-                .setLabel('Deny')
-                .setStyle(ButtonStyle.Danger)
-                .setEmoji('❌')
-        );
-
     const message = await approvalChannel.send({
-        embeds: [embed],
-        components: [row]
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('Train gen submission')
+                .setColor(0xff9900)
+                .addFields(
+                    { name: 'TRN', value: trn, inline: true },
+                    { name: 'Description', value: entry.description, inline: true },
+                    { name: 'Source', value: entry.source, inline: true },
+                    { name: 'Submitted by', value: `<@${user.id}>` },
+                )
+        ],
+        components: [
+            new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('approve')
+                        .setLabel('Approve')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('✅'),
+                    new ButtonBuilder()
+                        .setCustomId('deny')
+                        .setLabel('Deny')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('❌')
+                )
+        ]
     });
-    publicSubmissions.set(message, { user, trn, ...entry, previous: todaysTrains.get(trn) });
+    publicSubmissions.set(message.id, { user, trn, ...entry, previous: todaysTrains.get(trn) });
 
     console.log(`New submission (${message.id}) by @${user.tag}: ${JSON.stringify({ trn, ...entry})}`);
     return '📋 Your gen has been submitted for approval by contributors.';
+}
+
+async function submitEntryUpdate(user: User, trn: TRN, newEntry: GenEntry) {
+    if (isContributor(user)) {
+        await addEntryToLog(trn, newEntry);
+        console.log(`Train "${trn}" updated by contributor @${user.tag}: ${newEntry.description} (Source: ${newEntry.source})`);
+        return `✅ Train "${trn}" has been successfully updated in the log!`;
+    }
+    if (!approvalChannel) return '❌ Only contributors can update trains right now.';
+
+    const currentEntry = todaysTrains.get(trn);
+    const message = await approvalChannel.send({
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('Train gen update submission')
+                .setColor(0xff9900)
+                .addFields(
+                    { name: 'TRN', value: trn },
+                    { name: 'Current description', value: currentEntry.description, inline: true },
+                    { name: 'Current source', value: currentEntry.source, inline: true },
+                    { name: '\u200b', value: '\u200b', inline: true }, // Empty field to force current and new entries to be on separate lines
+                    { name: 'New description', value: newEntry.description, inline: true },
+                    { name: 'New source', value: newEntry.source, inline: true },
+                    { name: '\u200b', value: '\u200b', inline: true }, // Empty field to align "New source" with "Current source"
+                    { name: 'Submitted by', value: `<@${user.id}>` }
+                )
+        ],
+        components: [
+            new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('approve')
+                        .setLabel('Approve')
+                        .setStyle(ButtonStyle.Primary)
+                        .setEmoji('✏️'),
+                    new ButtonBuilder()
+                        .setCustomId('deny')
+                        .setLabel('Deny')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setEmoji('❌')
+                )
+        ]
+    });
+    publicSubmissions.set(message.id, { user, trn, ...newEntry });
+
+    console.log(`Update submission (${message.id}) by @${user.tag}: ${JSON.stringify({ trn, ...newEntry })}`);
+    return '📋 Your gen has been submitted for approval by contributors.';
+}
+
+async function approveSubmission(interaction: ButtonInteraction, submission: Submission) {
+    submission.previous = todaysTrains.get(submission.trn);
+    await addEntryToLog(submission.trn, { description: submission.description, source: submission.source || `<@${submission.user.id}>` });
+    console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
+    const embed = new EmbedBuilder()
+        .setTitle('Train entry approved')
+        .setColor(0x00ff00)
+        .setDescription(`Approved by <@${interaction.user.id}>`)
+        .addFields(
+            { name: 'TRN', value: submission.trn, inline: true },
+            { name: 'Description', value: submission.description, inline: true },
+            { name: 'Submitted by', value: `<@${submission.user.id}>`, inline: true },
+            { name: 'Source', value: submission.source }
+        );
+    return {
+        embeds: [embed],
+        components: [
+            new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`approve`)
+                        .setLabel('Approved')
+                        .setStyle(ButtonStyle.Success)
+                        .setDisabled(true)
+                        .setEmoji('✅'),
+                    new ButtonBuilder()
+                        .setCustomId(`undo`)
+                        .setLabel('Undo')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('↩️')
+                )
+        ]
+    }
+}
+
+async function denySubmission(interaction: ButtonInteraction, submission: Submission) {
+    console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
+    const embed = new EmbedBuilder()
+        .setTitle('Train entry denied')
+        .setColor(0xff0000)
+        .setDescription(`Denied by <@${interaction.user.id}>`)
+        .addFields(
+            { name: 'TRN', value: submission.trn, inline: true },
+            { name: 'Description', value: submission.description, inline: true },
+            { name: 'Submitted by', value: `<@${submission.user.id}>`, inline: true },
+            { name: 'Source', value: submission.source }
+        );
+    return {
+        embeds: [embed],
+        components: [
+            new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('approve')
+                        .setLabel('Approve')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('✅'),
+                    new ButtonBuilder()
+                        .setCustomId(`deny`)
+                        .setLabel('Denied')
+                        .setStyle(ButtonStyle.Danger)
+                        .setDisabled(true)
+                        .setEmoji('❌')
+                )
+        ]
+    }
+}
+
+async function undoApprovedSubmission(interaction: ButtonInteraction, submission: Submission) {
+    if (submission.previous) {
+        await addEntryToLog(submission.trn, submission.previous);
+    } else {
+        await removeEntryFromLog(submission.trn);
+    }
+    return await denySubmission(interaction, submission);
 }
 
 function isContributor(user: User) {
@@ -187,29 +312,60 @@ function isContributor(user: User) {
 
 async function handleCommandInteraction(interaction: CommandInteraction) {
     if (interaction.commandName === 'log-train') {
-        const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
-        const description = interaction.options.get('description', true).value as string;
-        const source = interaction.options.get('source')?.value as string;
-        if (isContributor(interaction.user)) {
-            await logEntry(trn, {
-                description,
-                source: source || `<@${interaction.user.id}>`
-            });
-            console.log(`Train "${trn}" logged by contributor @${interaction.user.tag}: ${description} (Source: ${source})`);
-            await deferReplyPromise;
-            interaction.editReply(`✅ Train "${trn}" has been successfully added to the log!`).catch(console.error);
+        const entry = {
+            description: interaction.options.get('description', true).value as string,
+            source: (interaction.options.get('source')?.value || `<@${interaction.user.id}>`) as string
+        };
+        const existingEntry = todaysTrains.get(trn);
+        if (existingEntry) {
+            if (existingEntry.description === entry.description && existingEntry.source === entry.source) {
+                await interaction.reply({
+                    content: `❌ This entry is already in the log`,
+                    flags: ["Ephemeral"]
+                });
+            } else {
+                const differenceString = existingEntry.description !== entry.description
+                    ? (existingEntry.source !== entry.source ? "description and source" : "description")
+                    : "source";
+                const uuid = crypto.randomUUID();
+                unconfirmedEntries.set(uuid, { ...entry, user: interaction.user, trn });
+                await interaction.reply({
+                    content: `⚠️ An entry is already logged for this TRN, with a different ${differenceString}. Do you want to update it?`,
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle(`Existing entry for ${trn}`)
+                            .addFields(
+                                { name: 'Description', value: existingEntry.description, inline: true },
+                                { name: 'Source', value: existingEntry.source, inline: true }
+                            )
+                    ],
+                    components: [
+                        new ActionRowBuilder<ButtonBuilder>()
+                            .addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`confirm-update:${uuid}`)
+                                    .setLabel('Update')
+                                    .setStyle(ButtonStyle.Primary)
+                                    .setEmoji('✏️')
+                            )
+                    ],
+                    flags: ["Ephemeral"],
+                });
+            }
+
         } else {
-            const message = await submitForApproval(trn, { description, source }, interaction.user);
+            const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
+            const result = await submitNewEntry(interaction.user, trn, entry);
             await deferReplyPromise;
-            interaction.editReply(message).catch(console.error);
+            interaction.editReply(result).catch(console.error);
         }
 
     } else if (interaction.commandName === 'remove-train') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         if (todaysTrains.has(trn)) {
             const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
-            await removeEntry(trn);
+            await removeEntryFromLog(trn);
             console.log(`Train "${trn}" removed from today's log by @${interaction.user.tag}`);
             await deferReplyPromise;
             interaction.editReply(`✅ Train "${trn}" has been successfully removed from today's log.`).catch(console.error);
@@ -250,7 +406,6 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
                     results.map(([trn, entry]) => ({
                         name: trn,
                         value: `${entry.description}\n-# ${entry.source}`,
-                        inline: false
                     })).slice(0, MAX_SEARCH_RESULTS)
                 );
             if (results.length > MAX_SEARCH_RESULTS) {
@@ -264,110 +419,61 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
         }
 
     } else if (interaction.commandName === 'usage') {
-        await interaction.reply({
-            content: `**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. To submit a train for the day, use </log-train:${logTrainCommandId}>. As you type the command, Discord will show you the command options and describe what to put in them. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Contributors may also post it in <#1333358653721415710> or <#1377249182116479027> if relevant.`
-        });
+        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. To submit a train for the day, use </log-train:${logTrainCommandId}>. As you type the command, Discord will show you the command options and describe what to put in them. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Contributors may also post it in <#1333358653721415710> or <#1377249182116479027> if relevant.`);
     }
 }
 
 async function handleButtonInteraction(interaction: ButtonInteraction) {
-    const action = interaction.customId;
-
-    const submission = publicSubmissions.get(interaction.message);
-    if (!submission) {
-        interaction.reply({
-            content: '❌ This submissions no longer exists.',
-            flags: ["Ephemeral"]
-        }).catch(console.error);
-        return;
-    }
-
-    if (!isContributor(interaction.user)) {
-        interaction.reply({
-            content: '❌ You do not have permission to manage submissions.',
-            flags: ["Ephemeral"]
-        }).catch(console.error);
-        return;
-    }
-
-    const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
-    if (action === 'approve') {
-        submission.previous = todaysTrains.get(submission.trn);
-        await logEntry(submission.trn, { description: submission.description, source: submission.source || `<@${submission.user.id}>` });
-        console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
-        const embed = new EmbedBuilder()
-            .setTitle('Train entry approved')
-            .setColor(0x00ff00)
-            .setDescription(`Approved by <@${interaction.user.id}>`)
-            .addFields(
-                { name: 'TRN', value: submission.trn, inline: true },
-                { name: 'Description', value: submission.description, inline: true },
-                { name: 'Submitted by', value: `<@${submission.user.id}>`, inline: true }
+    if (interaction.customId.startsWith("confirm-update:")) {
+        const uuid = interaction.customId.split(':')[1];
+        const entry = unconfirmedEntries.get(uuid);
+        if (entry) {
+            const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
+            const result = await submitEntryUpdate(
+                entry.user, entry.trn, { description: entry.description, source: entry.source }
             );
-        if (submission.source) {
-            embed.addFields({ name: 'Source', value: submission.source });
+            await deferUpdatePromise;
+            interaction.editReply({
+                content: result,
+                embeds: [],
+                components: []
+            }).catch(console.error);
+            unconfirmedEntries.delete(uuid);
+        } else {
+            interaction.reply({
+                content: '❌ Your submission has expired. Please try again.',
+                flags: ["Ephemeral"]
+            }).catch(console.error);
         }
-        await deferUpdatePromise;
-        interaction.editReply({
-            embeds: [embed],
-            components: [
-                new ActionRowBuilder<ButtonBuilder>()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`approve`)
-                            .setLabel('Approved')
-                            .setStyle(ButtonStyle.Success)
-                            .setDisabled(true)
-                            .setEmoji('✅'),
-                        new ButtonBuilder()
-                            .setCustomId(`undo`)
-                            .setLabel('Undo')
-                            .setStyle(ButtonStyle.Danger)
-                            .setEmoji('↩️')
-                    )
-            ]
-        }).catch(console.error);
-    } else if (action === 'deny' || action === 'undo') {
-        if (action === 'undo') {
-            if (submission.previous) {
-                await logEntry(submission.trn, submission.previous);
-            } else {
-                await removeEntry(submission.trn);
-            }
+    } else {
+        const submission = publicSubmissions.get(interaction.message.id);
+        if (!submission) {
+            interaction.reply({
+                content: '❌ This submissions no longer exists.',
+                flags: ["Ephemeral"]
+            }).catch(console.error);
+            return;
         }
-        console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
-        const embed = new EmbedBuilder()
-            .setTitle('Train entry denied')
-            .setColor(0xff0000)
-            .setDescription(`Denied by <@${interaction.user.id}>`)
-            .addFields(
-                { name: 'TRN', value: submission.trn, inline: true },
-                { name: 'Description', value: submission.description, inline: true },
-                { name: 'Submitted by', value: `<@${submission.user.id}>`, inline: true }
-            );
-        if (submission.source) {
-            embed.addFields({ name: 'Source', value: submission.source });
+
+        if (!isContributor(interaction.user)) {
+            interaction.reply({
+                content: '❌ You do not have permission to manage submissions.',
+                flags: ["Ephemeral"]
+            }).catch(console.error);
+            return;
         }
-        await deferUpdatePromise;
-        interaction.editReply({
-            embeds: [embed],
-            components: [
-                new ActionRowBuilder<ButtonBuilder>()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`approve`)
-                            .setLabel('Approve')
-                            .setStyle(ButtonStyle.Success)
-                            .setEmoji('✅'),
-                        new ButtonBuilder()
-                            .setCustomId(`deny`)
-                            .setLabel('Denied')
-                            .setStyle(ButtonStyle.Danger)
-                            .setDisabled(true)
-                            .setEmoji('❌')
-                    )
-            ]
-        }).catch(console.error);
+
+        if (interaction.customId === 'deny') {
+            // Denying doesn't affect the log, so no need to defer the update
+            await interaction.update(await denySubmission(interaction, submission));
+        } else {
+            const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
+            const result = interaction.customId === 'approve'
+                ? await approveSubmission(interaction, submission)
+                : await undoApprovedSubmission(interaction, submission);
+            await deferUpdatePromise;
+            interaction.editReply(result).catch(console.error);
+        }
     }
 }
 
@@ -477,11 +583,10 @@ client.once('ready', async () => {
     if (now.getHours() >= 3) {
         nextRun.setDate(nextRun.getDate() + 1);
     }
-    const timeUntilNext = nextRun.getTime() - now.getTime();
     setTimeout(async () => {
         await startNewLog();
         setInterval(startNewLog, 24 * 60 * 60 * 1000);
-    }, timeUntilNext);
+    }, nextRun.getTime() - now.getTime());
 });
 
 client.on('interactionCreate', async (interaction) => {
