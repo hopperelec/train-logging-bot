@@ -14,7 +14,7 @@ import {
     Snowflake,
     BaseMessageOptions,
     ThreadChannel,
-    DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel,
+    DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
 } from 'discord.js';
 import { config } from 'dotenv';
 
@@ -562,6 +562,19 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
     }
 }
 
+async function handleAutocompleteInteraction(interaction: AutocompleteInteraction) {
+    const focused = interaction.options.getFocused(true);
+    if (focused.name === 'trn') {
+        const trn = focused.value as string;
+        await interaction.respond(
+            Array.from(todaysTrains.keys())
+                .filter(key => key.toLowerCase().includes(trn.toLowerCase()))
+                .map(key => ({ name: key, value: key }))
+                .slice(0, 25)
+        ).catch(console.error);
+    }
+}
+
 async function startNewLog() {
     todaysTrains.clear();
     publicSubmissions.clear();
@@ -598,7 +611,8 @@ client.once('ready', async () => {
                     type: 3, // string
                     description: 'What the train is running as (e.g., "T101", "brake testing"...)',
                     required: true,
-                    maxLength: 32
+                    maxLength: 32,
+                    autocomplete: true
                 },
                 {
                     name: 'description',
@@ -624,7 +638,8 @@ client.once('ready', async () => {
                     type: 3, // string
                     description: 'The TRN of the train to remove',
                     required: true,
-                    maxLength: 32
+                    maxLength: 32,
+                    autocomplete: true
                 }
             ]
         },
@@ -637,7 +652,8 @@ client.once('ready', async () => {
                     type: 3, // string
                     description: 'The TRN of the train to look up (e.g., "T101")',
                     required: true,
-                    maxLength: 32
+                    maxLength: 32,
+                    autocomplete: true
                 }
             ]
         },
@@ -679,6 +695,8 @@ client.on('interactionCreate', async (interaction) => {
         await handleCommandInteraction(interaction);
     } else if (interaction.isButton()) {
         await handleButtonInteraction(interaction);
+    } else if (interaction.isAutocomplete()) {
+        await handleAutocompleteInteraction(interaction);
     }
 });
 
