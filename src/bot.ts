@@ -8,7 +8,13 @@ import {
     ButtonBuilder,
     ButtonStyle,
     ButtonInteraction,
-    Message, User, Guild, AttachmentPayload, Snowflake,
+    Message,
+    User,
+    Guild,
+    Snowflake,
+    BaseMessageOptions,
+    ThreadChannel,
+    DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel,
 } from 'discord.js';
 import { config } from 'dotenv';
 
@@ -38,6 +44,19 @@ if (!CONTRIBUTOR_GUILD_ID) {
 }
 
 const MAX_SEARCH_RESULTS = 10; // Maximum number of search results to return
+const CHARACTER_LIMIT = 100; // Discord message character limit
+
+const CATEGORY_HEADERS = {
+    green: '### Green line',
+    yellow: '### Yellow line',
+    other: '### Other workings'
+};
+
+const CATEGORY_DISPLAY_NAMES = {
+    green: 'green line trains',
+    yellow: 'yellow line trains',
+    other: 'other trains'
+}
 
 const client = new Client({
     intents: [
@@ -56,12 +75,13 @@ type Submission = GenEntry & {
     trn: TRN;
     previous?: GenEntry; // previous entry (for undoing)
 }
+type TrnCategory = 'green' | 'yellow' | 'other';
 
 let logChannel: TextChannel;
 let approvalChannel: TextChannel;
 let contributorGuild: Guild;
 let logTrainCommandId: string;
-let currentLogMessage: Message;
+let currentLogMessage: Message | Record<TrnCategory, Message>;
 const todaysTrains = new Map<TRN, GenEntry>();
 const unconfirmedEntries = new Map<string, GenEntry & {
     user: User;
@@ -73,7 +93,7 @@ function normalizeTRN(trn: TRN): TRN {
     return /^\d{3}$/.test(trn) ? `T${trn}` : trn;
 }
 
-function categorizeTRN(trn: TRN) {
+function categorizeTRN(trn: TRN): TrnCategory {
     const match = trn.match(/T?(\d{3})/);
     if (!match) return 'other';
     const number = +match[1];
@@ -82,13 +102,54 @@ function categorizeTRN(trn: TRN) {
     return 'other';
 }
 
-function renderEntry(entry: { trn: TRN } & GenEntry) {
-    return `${entry.trn} - ${entry.description}\n-# ${entry.source}`;
+function listEntries(entries: ({ trn: TRN } & GenEntry)[]) {
+    return entries
+        .sort((a, b) => a.trn.localeCompare(b.trn))
+        .map(entry => `${entry.trn} - ${entry.description}\n-# ${entry.source}`)
+        .join('\n');
 }
 
-function generateDailyLogContent(): string | { content: string; files: [AttachmentPayload] } {
-    if (todaysTrains.size === 0) return '*No trains have been logged yet today. Check back here later!*';
+function replaceDiscordFeaturesWithNames(text: string) {
+    return text
+        // Emojis
+        .replace(/<a?:(\w+):\d+>/g, (_, name) => `:${name}:`)
+        // User mentions
+        .replace(/<@!?(\d+)>/g, (_, userId) => {
+            const user = client.users.cache.get(userId);
+            return user ? `@${user.tag}` : `<@${userId}>`;
+        })
+        // Role mentions
+        .replace(/<@&(\d+)>/g, (_, roleId) => {
+            const role = contributorGuild?.roles.cache.get(roleId);
+            return role ? `@${role.name}` : `<@&${roleId}>`;
+        })
+        // Channel mentions
+        .replace(/<#(\d+)>/g, (_, channelId) => {
+            const channel = client.channels.cache.get(channelId);
+            if (channel instanceof BaseGuildTextChannel || channel instanceof ThreadOnlyChannel) return `#${channel.name}`;
+            if (channel instanceof VoiceChannel) return `🎤 ${channel.name}`;
+            if (channel instanceof ThreadChannel) return `🧵 ${channel.name}`;
+            if (channel instanceof CategoryChannel) return `📂 ${channel.name}`;
+            if (channel instanceof DMChannel) return `@${channel.recipient.tag}`;
+            return `<#${channelId}>`;
+        });
+}
 
+function renderEmptyCategory(category: TrnCategory): string {
+    return `${CATEGORY_HEADERS[category]}\n*No ${CATEGORY_DISPLAY_NAMES[category]} have been logged yet today.*`;
+}
+
+async function editOrSendMessage(message: Message, content: string | BaseMessageOptions) {
+    try {
+        await message.edit(content);
+    } catch {
+        // If the message was deleted or something went wrong, send a new one
+        return await logChannel.send(content);
+    }
+    return message;
+}
+
+async function updateLogMessage() {
     const categories: Record<string, ({ trn: TRN } & GenEntry)[]> = {};
     for (const [trn, entry] of todaysTrains.entries()) {
         const line = categorizeTRN(trn);
@@ -96,37 +157,51 @@ function generateDailyLogContent(): string | { content: string; files: [Attachme
         categories[line].push({ trn, ...entry });
     }
 
-    let content = '### Green line\n';
-    if (categories.green) {
-        content += categories.green.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
-    } else {
-        content += '*No trains have been logged on the green line yet.*';
+    function renderSingleMessageCategory(category: TrnCategory) {
+        const entries = categories[category];
+        if (!entries?.length) return renderEmptyCategory(category);
+        return `${CATEGORY_HEADERS[category]}\n${listEntries(entries)}`;
     }
-    content += '\n### Yellow line\n';
-    if (categories.yellow) {
-        content += categories.yellow.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
-    } else {
-        content += '*No trains have been logged on the yellow line yet.*';
-    }
-    if (categories.other) {
-        content += '\n### Other workings\n';
-        content += categories.other.sort((a, b) => a.trn.localeCompare(b.trn)).map(renderEntry).join('\n');
-    }
-    if (content.length <= 2000) return content;
-    return {
-        content: "Today's log is too long to display as a message, so it has been attached as a file.",
-        files: [{
-            name: `log-${new Date().toISOString().split('T')[0]}.txt`,
-            attachment: Buffer.from(content, 'utf-8')
-        }]
-    }
-}
 
-async function updateLogMessage() {
-    await currentLogMessage.edit(generateDailyLogContent()).catch(async () => {
-        // If the message was deleted or something went wrong, create a new one
-        currentLogMessage = await logChannel.send(generateDailyLogContent());
-    });
+    function renderMultipleMessageCategory(category: TrnCategory): string | BaseMessageOptions {
+        const entries = categories[category];
+        if (!entries?.length) return renderEmptyCategory(category);
+        const content = `${CATEGORY_HEADERS[category]}\n${listEntries(entries)}`;
+        if (content.length > CHARACTER_LIMIT) {
+            return {
+                content: `${CATEGORY_HEADERS[category]}\nToo many ${CATEGORY_DISPLAY_NAMES[category]} have been logged today to fit in a single message, so they have been attached as a file.`,
+                files: [{
+                    name: `Log - ${new Date().toISOString().split('T')[0]} - ${category}.txt`,
+                    attachment: Buffer.from(replaceDiscordFeaturesWithNames(content))
+                }]
+            };
+        }
+        return content;
+    }
+
+    if (currentLogMessage instanceof Message) {
+        let content = `${renderSingleMessageCategory('green')}\n${renderSingleMessageCategory('yellow')}`;
+        if (categories.other) {
+            content += `\n${renderSingleMessageCategory('other')}`;
+        }
+        if (content.length > CHARACTER_LIMIT) {
+            currentLogMessage = {
+                green: await editOrSendMessage(currentLogMessage, renderMultipleMessageCategory('green')),
+                yellow: await logChannel.send(renderMultipleMessageCategory('yellow')),
+                other: categories.other ? await logChannel.send(renderMultipleMessageCategory('other')) : undefined
+            }
+        } else {
+            currentLogMessage = await editOrSendMessage(currentLogMessage, content);
+        }
+    } else {
+        currentLogMessage.green = await editOrSendMessage(currentLogMessage.green, renderMultipleMessageCategory('green'));
+        currentLogMessage.yellow = await editOrSendMessage(currentLogMessage.yellow, renderMultipleMessageCategory('yellow'));
+        if (currentLogMessage.other) {
+            currentLogMessage.other = await editOrSendMessage(currentLogMessage.other, renderMultipleMessageCategory('other'));
+        } else if (categories.other) {
+            currentLogMessage.other = await logChannel.send(renderMultipleMessageCategory('other'));
+        }
+    }
 }
 
 async function addEntryToLog(trn: TRN, entry: GenEntry) {
@@ -490,7 +565,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 async function startNewLog() {
     todaysTrains.clear();
     publicSubmissions.clear();
-    currentLogMessage = await logChannel.send(generateDailyLogContent());
+    currentLogMessage = await logChannel.send('*No trains have been logged yet today. Check back here later!*');
     console.log(`Started new log for ${new Date().toISOString().split('T')[0]}`);
 }
 
