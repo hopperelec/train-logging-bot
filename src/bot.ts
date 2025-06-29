@@ -44,7 +44,7 @@ if (!CONTRIBUTOR_GUILD_ID) {
 }
 
 const MAX_SEARCH_RESULTS = 10; // Maximum number of search results to return
-const CHARACTER_LIMIT = 100; // Discord message character limit
+const CHARACTER_LIMIT = 2000; // Discord message character limit
 
 const CATEGORY_HEADERS = {
     green: '### Green line',
