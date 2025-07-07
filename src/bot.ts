@@ -17,6 +17,8 @@ import {
     DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
 } from 'discord.js';
 import { config } from 'dotenv';
+import {normalizeDescription, normalizeTRN} from "./normalization";
+import {GenEntry, Submission, TRN, TrnCategory} from "./types";
 
 config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -65,18 +67,6 @@ const client = new Client({
     ]
 });
 
-type TRN = string;
-type GenEntry = {
-    description: string;
-    source: string;
-}
-type Submission = GenEntry & {
-    user: User;
-    trn: TRN;
-    previous?: GenEntry; // previous entry (for undoing)
-}
-type TrnCategory = 'green' | 'yellow' | 'other';
-
 let logChannel: TextChannel;
 let approvalChannel: TextChannel;
 let contributorGuild: Guild;
@@ -89,12 +79,9 @@ const unconfirmedEntries = new Map<string, GenEntry & {
 }>;
 const publicSubmissions = new Map<Snowflake, Submission>();
 
-function normalizeTRN(trn: TRN): TRN {
-    return /^\d{3}$/.test(trn) ? `T${trn}` : trn;
-}
-
+const TRN_REGEX = new RegExp(/^T?(\d{3})/);
 function categorizeTRN(trn: TRN): TrnCategory {
-    const match = trn.match(/T?(\d{3})/);
+    const match = trn.match(TRN_REGEX);
     if (!match) return 'other';
     const number = +match[1];
     if (number >= 101 && number <= 112) return 'green';
@@ -391,7 +378,7 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
     if (interaction.commandName === 'log-train') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         const entry = {
-            description: interaction.options.get('description', true).value as string,
+            description: normalizeDescription(interaction.options.get('description', true).value as string),
             source: (interaction.options.get('source')?.value || `<@${interaction.user.id}>`) as string
         };
         const existingEntry = todaysTrains.get(trn);
