@@ -20,7 +20,7 @@ const METROCAR_COUPLING_REGEX2 = new RegExp(
     "(?<!\\+|\\d)" + // Not preceded by a + or digit
     NORMALIZED_METROCAR + // At least one metrocar
     `( \\+ ${NORMALIZED_METROCAR})+` + // Followed by one or more metrocars separated by " + "
-    "(?!\\+|\\d)/", // Not followed by a + or digit
+    "(?!\\+|\\d)", // Not followed by a + or digit
     "g"
 );
 const METROCAR_COUPLING_REGEX3 = new RegExp(
