@@ -28,7 +28,7 @@ const METROCAR_COUPLING_REGEX3 = new RegExp(
     "(?<!\\+|\\d)" + // Not preceded by a + or digit
     NORMALIZED_METROCAR + // Preceded by a metrocar
     ")" +
-    "( and | & | - |-)" + // This is the only part included in the match
+    "( and | & | - |-| / |/| \\\\ |\\\\)" + // This is the only part included in the match
     "(?=" + // Don't include second unit in match
     NORMALIZED_METROCAR + // Followed by a metrocar
     "(?!\\+|\\d)" + // Not followed by a + or digit
@@ -66,6 +66,10 @@ export function normalizeDescription(description: string) {
         // - 40xx & 40xx
         // - 40xx - 40xx
         // - 40xx-40xx
+        // - 40xx / 40xx
+        // - 40xx/40xx
+        // - 40xx \ 40xx
+        // - 40xx\40xx
         .replace(METROCAR_COUPLING_REGEX3, "+")
         // Add emojis to class 555 units
         .replace(CLASS_555_EMOJI_REGEX, match => `<:class555:1358573606665195558> ${match}`)
