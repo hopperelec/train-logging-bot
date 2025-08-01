@@ -96,10 +96,8 @@ function listEntries(entries: ({ trn: TRN } & GenEntry)[]) {
         .join('\n');
 }
 
-function replaceDiscordFeaturesWithNames(text: string) {
+function replacePingsWithNames(text: string) {
     return text
-        // Emojis
-        .replace(/<a?:(\w+):\d+>/g, (_, name) => `:${name}:`)
         // User mentions
         .replace(/<@!?(\d+)>/g, (_, userId) => {
             const user = client.users.cache.get(userId);
@@ -110,6 +108,12 @@ function replaceDiscordFeaturesWithNames(text: string) {
             const role = contributorGuild?.roles.cache.get(roleId);
             return role ? `@${role.name}` : `<@&${roleId}>`;
         })
+}
+
+function replaceDiscordFeaturesWithNames(text: string) {
+    return replacePingsWithNames(text)
+        // Emojis
+        .replace(/<a?:(\w+):\d+>/g, (_, name) => `:${name}:`)
         // Channel mentions
         .replace(/<#(\d+)>/g, (_, channelId) => {
             const channel = client.channels.cache.get(channelId);
@@ -126,14 +130,27 @@ function renderEmptyCategory(category: TrnCategory): string {
     return `${CATEGORY_HEADERS[category]}\n*No ${CATEGORY_DISPLAY_NAMES[category]} have been logged yet today.*`;
 }
 
+async function sendMessageWithoutPinging(content: string | BaseMessageOptions) {
+    const initialContent = typeof content === 'string' ? replaceDiscordFeaturesWithNames(content) : {
+        ...content,
+        content: replaceDiscordFeaturesWithNames(content.content || '')
+    }
+    const message = await logChannel.send(initialContent);
+    if (typeof content === 'string') {
+        if (content === initialContent) return message;
+    } else if (typeof initialContent === 'object' && content.content === initialContent.content) {
+        return message;
+    }
+    return await message.edit(content);
+}
+
 async function editOrSendMessage(message: Message, content: string | BaseMessageOptions) {
     try {
-        await message.edit(content);
+        return await message.edit(content);
     } catch {
         // If the message was deleted or something went wrong, send a new one
-        return await logChannel.send(content);
+        return await sendMessageWithoutPinging(content);
     }
-    return message;
 }
 
 async function updateLogMessage() {
@@ -174,8 +191,8 @@ async function updateLogMessage() {
         if (content.length > CHARACTER_LIMIT) {
             currentLogMessage = {
                 green: await editOrSendMessage(currentLogMessage, renderMultipleMessageCategory('green')),
-                yellow: await logChannel.send(renderMultipleMessageCategory('yellow')),
-                other: categories.other ? await logChannel.send(renderMultipleMessageCategory('other')) : undefined
+                yellow: await sendMessageWithoutPinging(renderMultipleMessageCategory('yellow')),
+                other: categories.other ? await sendMessageWithoutPinging(renderMultipleMessageCategory('other')) : undefined
             }
         } else {
             currentLogMessage = await editOrSendMessage(currentLogMessage, content);
@@ -186,7 +203,7 @@ async function updateLogMessage() {
         if (currentLogMessage.other) {
             currentLogMessage.other = await editOrSendMessage(currentLogMessage.other, renderMultipleMessageCategory('other'));
         } else if (categories.other) {
-            currentLogMessage.other = await logChannel.send(renderMultipleMessageCategory('other'));
+            currentLogMessage.other = await sendMessageWithoutPinging(renderMultipleMessageCategory('other'));
         }
     }
 }
