@@ -12,7 +12,7 @@ export function normalizeTRN(trn: TRN): TRN {
 // --- Description ---
 
 const CLASS_555_FORMATTING_REGEX = new RegExp(/(?<!\d)(555|5) ?((\d|\?|x){3})(?!\d)/g);
-const METROCAR_FORMATTING_REGEX = new RegExp(/(?<!\d)(599|994|4) ?[0x?]((\d|\?|x){2})(?!\d)/, "g");
+const METROCAR_FORMATTING_REGEX = new RegExp(/(?<!\d)(599|994|4) ?[0x?]((\d|\?|x){2})(?!\d)/g);
 
 const NORMALIZED_METROCAR = "40(\\d|\\?|x){2}";
 const METROCAR_COUPLING_REGEX1 = new RegExp(`${NORMALIZED_METROCAR}( ${NORMALIZED_METROCAR})+`, "g");
@@ -46,8 +46,8 @@ const CLASS_555_EMOJI_REGEX = new RegExp(
 const METROCAR_EMOJI_REGEX = new RegExp(
     `(?<!\\+|\\d|${DISCORD_EMOJI_FORMAT})` + // Not preceded by a +, digit, or an existing emoji
     NORMALIZED_METROCAR + // At least one metrocar
-    `(\\+${NORMALIZED_METROCAR})+` + // Followed by one or more metrocars separated by "+"
-    "(?!\\+|\\d)", // Not followed by a + or digi
+    `(\\+${NORMALIZED_METROCAR})*` + // Followed by one or more metrocars separated by "+"
+    "(?!\\+|\\d)", // Not followed by a + or digit
     "g"
 );
 
