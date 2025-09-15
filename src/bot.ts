@@ -508,7 +508,7 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
         }
 
     } else if (interaction.commandName === 'usage') {
-        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. To submit a train for the day, use </log-train:${logTrainCommandId}>. As you type the command, Discord will show you the command options and describe what to put in them. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Contributors may also post it in <#1333358653721415710> or <#1377249182116479027> if relevant.`);
+        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. To submit a train for the day, use </log-train:${logTrainCommandId}>. As you type the command, Discord will show you the command options and describe what to put in them. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. If it is a non-passenger vehicle, contributors may also post it in <#1377249182116479027>.`);
     }
 }
 
