@@ -628,7 +628,7 @@ client.once('ready', async () => {
                 {
                     name: 'source',
                     type: 3, // string
-                    description: 'Source of the information (defaults to you)',
+                    description: "Don't specify if it's just you! Source of the information (defaults to you)",
                     maxLength: 128
                 }
             ]
