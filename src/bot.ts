@@ -146,7 +146,11 @@ async function sendMessageWithoutPinging(content: string | BaseMessageOptions) {
 
 async function editOrSendMessage(message: Message, content: string | BaseMessageOptions) {
     try {
-        return await message.edit(content);
+        return await message.edit(
+            typeof content === 'string'
+                ? { content, files: [] }: // Remove files if they were previously attached
+                content
+        )
     } catch {
         // If the message was deleted or something went wrong, send a new one
         return await sendMessageWithoutPinging(content);
