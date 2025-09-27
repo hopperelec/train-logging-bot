@@ -51,6 +51,11 @@ const METROCAR_EMOJI_REGEX = new RegExp(
     "g"
 );
 
+function addEmojis(unitEmoji: string) {
+    // Prepends unitEmoji and, if the unit contains 'x', a question mark emoji
+    return (unit: string) => unit.includes('x') ? `:question:<${unitEmoji}> ${unit}` : `<${unitEmoji}> ${unit}`;
+}
+
 export function normalizeDescription(description: string) {
     return description
         // Normalize 555 units
@@ -72,7 +77,7 @@ export function normalizeDescription(description: string) {
         // - 40xx\40xx
         .replace(METROCAR_COUPLING_REGEX3, "+")
         // Add emojis to class 555 units
-        .replace(CLASS_555_EMOJI_REGEX, match => `<:class555:1358573606665195558> ${match}`)
+        .replace(CLASS_555_EMOJI_REGEX, addEmojis(':class555:1358573606665195558'))
         // Add emojis to metrocar sets
-        .replace(METROCAR_EMOJI_REGEX, match => `<:metrocar:1332544654847115354> ${match}`)
+        .replace(METROCAR_EMOJI_REGEX, addEmojis(':metrocar:1332544654847115354'))
 }
