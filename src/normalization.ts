@@ -39,8 +39,8 @@ const METROCAR_COUPLING_REGEX3 = new RegExp(
 const DISCORD_EMOJI_FORMAT = "<a?:\\w+:\\d+> ?";
 const CLASS_555_EMOJI_REGEX = new RegExp(
     `(?<!\\d|${DISCORD_EMOJI_FORMAT})` + // Not preceded by a digit or an existing emoji
-    "555\\d{3}" + // This is the only part included in the match
-    "(?!\\d)", // Not followed by a digit
+    "555\\d(\\d|\\?|x){2}" + // This is the only part included in the match
+    "(?!\\d|x)", // Not followed by a digit or x
     "g"
 );
 const METROCAR_EMOJI_REGEX = new RegExp(
