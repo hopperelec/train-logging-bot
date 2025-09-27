@@ -201,7 +201,15 @@ async function updateLogMessage() {
         currentLogMessage.green = await editOrSendMessage(currentLogMessage.green, renderMultipleMessageCategory('green'));
         currentLogMessage.yellow = await editOrSendMessage(currentLogMessage.yellow, renderMultipleMessageCategory('yellow'));
         if (currentLogMessage.other) {
-            currentLogMessage.other = await editOrSendMessage(currentLogMessage.other, renderMultipleMessageCategory('other'));
+            // Modified implementation of `editOrSendMessage` to only re-send if there are other workings
+            const content = renderMultipleMessageCategory('other');
+            try {
+                currentLogMessage.other = await currentLogMessage.other.edit(content);
+            } catch {
+                currentLogMessage.other = categories.other
+                    ? await sendMessageWithoutPinging(content)
+                    : undefined;
+            }
         } else if (categories.other) {
             currentLogMessage.other = await sendMessageWithoutPinging(renderMultipleMessageCategory('other'));
         }
