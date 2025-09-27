@@ -24,6 +24,7 @@ config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 const APPROVAL_CHANNEL_ID = process.env.APPROVAL_CHANNEL_ID;
+const TRANSACTION_CHANNEL_ID = process.env.TRANSACTION_CHANNEL_ID;
 const CONTRIBUTOR_GUILD_ID = process.env.CONTRIBUTOR_GUILD_ID;
 const CONTRIBUTOR_ROLE_ID = process.env.CONTRIBUTOR_ROLE_ID;
 if (!DISCORD_TOKEN) {
@@ -36,6 +37,9 @@ if (!LOG_CHANNEL_ID) {
 }
 if (!APPROVAL_CHANNEL_ID) {
     console.warn('Missing APPROVAL_CHANNEL_ID environment variable. Non-contributors will not be able to submit entries for approval.');
+}
+if (!TRANSACTION_CHANNEL_ID) {
+    console.warn('Missing TRANSACTION_CHANNEL_ID environment variable. Transactions will only be logged to the console.');
 }
 if (!CONTRIBUTOR_GUILD_ID !== !CONTRIBUTOR_ROLE_ID) {
     console.error('Both CONTRIBUTOR_GUILD_ID and CONTRIBUTOR_ROLE_ID must be set if one is set.');
@@ -69,6 +73,7 @@ const client = new Client({
 
 let logChannel: TextChannel;
 let approvalChannel: TextChannel;
+let transactionChannel: TextChannel;
 let contributorGuild: Guild;
 let logTrainCommandId: string;
 let currentLogMessage: Message | Record<TrnCategory, Message>;
@@ -78,6 +83,10 @@ const unconfirmedEntries = new Map<string, GenEntry & {
     trn: TRN;
 }>;
 const publicSubmissions = new Map<Snowflake, Submission>();
+
+function logTransaction(message: string | BaseMessageOptions) {
+    if (transactionChannel) sendMessageWithoutPinging(message, transactionChannel).then();
+}
 
 const TRN_REGEX = new RegExp(/^T?(\d{3})/);
 function categorizeTRN(trn: TRN): TrnCategory {
@@ -130,12 +139,12 @@ function renderEmptyCategory(category: TrnCategory): string {
     return `${CATEGORY_HEADERS[category]}\n*No ${CATEGORY_DISPLAY_NAMES[category]} have been logged yet today.*`;
 }
 
-async function sendMessageWithoutPinging(content: string | BaseMessageOptions) {
+async function sendMessageWithoutPinging(content: string | BaseMessageOptions, channel = logChannel) {
     const initialContent = typeof content === 'string' ? replaceDiscordFeaturesWithNames(content) : {
         ...content,
-        content: replaceDiscordFeaturesWithNames(content.content || '')
+        content: content.content ? replaceDiscordFeaturesWithNames(content.content) : undefined
     }
-    const message = await logChannel.send(initialContent);
+    const message = await channel.send(initialContent);
     if (typeof content === 'string') {
         if (content === initialContent) return message;
     } else if (typeof initialContent === 'object' && content.content === initialContent.content) {
@@ -235,6 +244,19 @@ async function submitNewEntry(user: User, trn: TRN, entry: GenEntry) {
     if (isContributor(user)) {
         await addEntryToLog(trn, entry);
         console.log(`Train "${trn}" logged by contributor @${user.tag}: ${entry.description} (Source: ${entry.source})`);
+        logTransaction({
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('Train entry logged')
+                    .setColor(0x00ff00)
+                    .addFields(
+                        { name: 'TRN', value: trn, inline: true },
+                        { name: 'Description', value: entry.description, inline: true },
+                        { name: 'Source', value: entry.source, inline: true },
+                        { name: 'Logged by', value: `<@${user.id}>` }
+                    )
+            ]
+        });
         return `✅ Train "${trn}" has been successfully added to the log!`;
     }
     if (!approvalChannel) return '❌ Only contributors can log trains right now.';
@@ -277,6 +299,19 @@ async function submitEntryUpdate(user: User, trn: TRN, newEntry: GenEntry) {
     if (isContributor(user)) {
         await addEntryToLog(trn, newEntry);
         console.log(`Train "${trn}" updated by contributor @${user.tag}: ${newEntry.description} (Source: ${newEntry.source})`);
+        logTransaction({
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('Train entry updated')
+                    .setColor(0xff9900)
+                    .addFields(
+                        { name: 'TRN', value: trn, inline: true },
+                        { name: 'New description', value: newEntry.description, inline: true },
+                        { name: 'New source', value: newEntry.source, inline: true },
+                        { name: 'Updated by', value: `<@${user.id}>` }
+                    )
+            ]
+        });
         return `✅ Train "${trn}" has been successfully updated in the log!`;
     }
     if (!approvalChannel) return '❌ Only contributors can update trains right now.';
@@ -324,6 +359,7 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
     submission.previous = todaysTrains.get(submission.trn);
     await addEntryToLog(submission.trn, { description: submission.description, source: submission.source || `<@${submission.user.id}>` });
     console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
+    logTransaction(`✅ ${interaction.message.url} (submission for train "${submission.trn}" by <@${submission.user.id}>) approved by <@${interaction.user.id}>`);
     return {
         embeds: [
             new EmbedBuilder()
@@ -358,6 +394,7 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
 
 async function denySubmission(interaction: ButtonInteraction, submission: Submission) {
     console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
+    logTransaction(`❌ ${interaction.message.url} (submission for train "${submission.trn}" by <@${submission.user.id}>) denied by <@${interaction.user.id}>`);
     return {
         embeds: [
             new EmbedBuilder()
@@ -468,6 +505,7 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
             const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
             await removeEntryFromLog(trn);
             console.log(`Train "${trn}" removed from today's log by @${interaction.user.tag}`);
+            logTransaction(`🗑️ Train "${trn}" removed from today's log by <@${interaction.user.id}>`);
             await deferReplyPromise;
             interaction.editReply(`✅ Train "${trn}" has been successfully removed from today's log.`).catch(console.error);
         } else {
@@ -596,6 +634,7 @@ async function startNewLog() {
     publicSubmissions.clear();
     currentLogMessage = await logChannel.send('*No trains have been logged yet today. Check back here later!*');
     console.log(`Started new log for ${new Date().toISOString().split('T')[0]}`);
+    logTransaction('📝 New log started');
 }
 
 client.once('ready', async () => {
@@ -607,8 +646,13 @@ client.once('ready', async () => {
         process.exit(1);
     }
     approvalChannel = client.channels.cache.get(APPROVAL_CHANNEL_ID) as TextChannel;
-    if (!approvalChannel) {
+    if (APPROVAL_CHANNEL_ID && !approvalChannel) {
         console.error(`Approval channel with ID ${APPROVAL_CHANNEL_ID} not found.`);
+        process.exit(1);
+    }
+    transactionChannel = client.channels.cache.get(TRANSACTION_CHANNEL_ID) as TextChannel;
+    if (TRANSACTION_CHANNEL_ID && !transactionChannel) {
+        console.error(`Transaction channel with ID ${TRANSACTION_CHANNEL_ID} not found.`);
         process.exit(1);
     }
     contributorGuild = client.guilds.cache.get(CONTRIBUTOR_GUILD_ID);
