@@ -15,6 +15,7 @@ export interface LogEntryDetails {
     sources: string;
     notes?: string;
     index?: number;
+    withdrawn?: boolean;
 }
 
 export interface LogEntry extends LogEntryKey {

@@ -440,19 +440,25 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
         const sources = (interaction.options.get('sources')?.value || `<@${interaction.user.id}>`) as string;
         const notes = interaction.options.get('notes')?.value as string | undefined;
         const index = interaction.options.get('index')?.value as number | undefined;
+        const withdrawn = interaction.options.get('withdrawn')?.value as boolean | undefined;
         const submission: Submission = {
             user: interaction.user,
             transactions: [{
                 type: 'add',
                 trn,
                 units,
-                details: { sources, notes, index }
+                details: { sources, notes, index, withdrawn }
             }]
         };
 
         const existingEntry = todaysLog[trn]?.[units];
         if (existingEntry) {
-            if (existingEntry.sources === sources && existingEntry.notes === notes && existingEntry.index === index) {
+            if (
+                existingEntry.sources === sources &&
+                existingEntry.notes === notes &&
+                existingEntry.index === index &&
+                !existingEntry.withdrawn === !withdrawn
+            ) {
                 await interaction.reply({
                     content: `❌ This entry is already in the log`,
                     flags: ["Ephemeral"]
@@ -470,7 +476,8 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
                         .setFields(
                             { name: 'Sources', value: existingEntry.sources },
                             { name: 'Notes', value: existingEntry.notes || '*None*' },
-                            { name: 'Index', value: existingEntry.index !== undefined ? existingEntry.index.toString() : '*None*' }
+                            { name: 'Index', value: existingEntry.index !== undefined ? existingEntry.index.toString() : '*None*' },
+                            { name: 'Withdrawn', value: existingEntry.withdrawn ? 'Yes' : 'No' }
                         )
                 ],
                 components: [
@@ -760,6 +767,11 @@ client.once('ready', async () => {
                     type: 3, // string
                     description: 'Any notes about the allocation (e.g., testing, driver training, withdrawals...)',
                     maxLength: 64
+                },
+                {
+                    name: 'withdrawn',
+                    type: 5, // boolean
+                    description: 'Mark these units as withdrawn from this TRN (strikes through the units in the log)',
                 },
                 {
                     name: 'index',

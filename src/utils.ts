@@ -19,7 +19,9 @@ export function dailyLogToString(dailyLog: DailyLog) {
                 .sort(([,a], [,b]) => (a.index || 0) - (b.index || 0));
             const descriptions = sortedAllocations.map(([units, details]) => {
                 units = normalizeUnits(units);
-                return details.notes ? `${units} (${details.notes})` : units
+                if (details.withdrawn) units = `~~${units}~~`;
+                if (details.notes) units += ` (${details.notes})`;
+                return units;
             });
             const sources = sortedAllocations.map(
                 ([, details]) => details.sources
@@ -38,7 +40,7 @@ export function entryToString(entry: LogEntry) {
     if (entry.details.index !== undefined) {
         detailsParts.push(`index: ${entry.details.index}`);
     }
-    return `${entry.trn} - ${entry.units} (${detailsParts.join(' | ')})`;
+    return `${entry.trn} - ${entry.details.withdrawn ? `~~${entry.units}~~` : entry.units} (${detailsParts.join(' | ')})`;
 }
 
 export function listTransactions(transactions: LogTransaction[], referenceLog: DailyLog) {
