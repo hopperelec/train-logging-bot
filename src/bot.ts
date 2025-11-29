@@ -17,27 +17,21 @@ import {
     DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
 } from 'discord.js';
 import { config } from 'dotenv';
-import {normalizeTRN, normalizeUnits} from "./normalization";
+import {normalizeTRN} from "./normalization";
 import {
-    ClarifyingNlpInteraction,
     DailyLog,
-    ExecutedSubmission, LogEntry,
+    ExecutedSubmission,
     LogTransaction,
-    ManualSubmission,
     Submission,
-    TRN,
     TrnCategory
 } from "./types";
+import {aiLogCommand} from "./nlp";
+import {categorizeTRN, dailyLogToString, listTransactions} from "./utils";
 
 config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 if (!DISCORD_TOKEN) {
     console.error('Missing DISCORD_TOKEN environment variable.');
-    process.exit(1);
-}
-const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
-if (!GOOGLE_AI_API_KEY) {
-    console.error('Missing GOOGLE_AI_API_KEY environment variable.');
     process.exit(1);
 }
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
@@ -91,41 +85,22 @@ let contributorGuild: Guild;
 let logAllocationCommandId: string;
 let currentLogMessage: Message | Record<TrnCategory, Message>;
 let todaysLog: DailyLog = {};
-const clarifyingSubmissions = new Map<Snowflake, ClarifyingNlpInteraction>();
 const submissionsForApproval = new Map<Snowflake, Submission>();
-const unconfirmedEntries = new Map<Snowflake, Submission>();
+const unconfirmedSubmissions = new Map<Snowflake, Submission>();
 const executedHistory = new Map<Snowflake, ExecutedSubmission>();
 
 function logTransaction(message: string | BaseMessageOptions) {
     if (transactionChannel) sendMessageWithoutPinging(message, transactionChannel).then();
 }
 
-const TRN_REGEX = new RegExp(/^T?(\d{3})/);
-function categorizeTRN(trn: TRN): TrnCategory {
-    const match = trn.match(TRN_REGEX);
-    if (!match) return 'other';
-    const number = +match[1];
-    if (number >= 101 && number <= 112) return 'green';
-    if (number >= 121 && number <= 136) return 'yellow';
-    return 'other';
-}
-
-function dailyLogToString(dailyLog: DailyLog) {
-    return Object.entries(dailyLog)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([trn, allocations]) => {
-            const sortedAllocations = Object.entries(allocations)
-                .sort(([,a], [,b]) => (a.index || 0) - (b.index || 0));
-            const descriptions = sortedAllocations.map(([units, details]) => {
-                units = normalizeUnits(units);
-                return details.notes ? `${units} (${details.notes})` : units
-            });
-            const sources = sortedAllocations.map(
-                ([, details]) => details.sources
-            );
-            return `${trn} - ${descriptions.join('; ')}\n-# ${sources.join('; ')}`;
-        })
-        .join('\n');
+export function addUnconfirmedEntry(submission: Submission): ButtonBuilder {
+    const uuid = crypto.randomUUID();
+    unconfirmedSubmissions.set(uuid, submission);
+    return new ButtonBuilder()
+        .setCustomId(`confirm-update:${uuid}`)
+        .setLabel('Update')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('✏️');
 }
 
 function replacePingsWithNames(text: string) {
@@ -294,41 +269,12 @@ async function runTransactions(transactions: LogTransaction[]) {
     await updateLogMessage();
 }
 
-function entryToString(entry: LogEntry) {
-    const detailsParts = [`source: ${entry.details.sources}`];
-    if (entry.details.notes) {
-        detailsParts.push(`notes: ${entry.details.notes}`);
-    }
-    if (entry.details.index !== undefined) {
-        detailsParts.push(`index: ${entry.details.index}`);
-    }
-    return `${entry.trn} - ${entry.units} (${detailsParts.join(' | ')})`;
-}
-
-function listTransactions(transactions: LogTransaction[], referenceLog = todaysLog) {
-    return transactions.flatMap(transaction => {
-        const lines = []
-        const existingDetails = referenceLog[transaction.trn]?.[transaction.units];
-        if (existingDetails) {
-            lines.push(`🟥 ${entryToString({
-                trn: transaction.trn,
-                units: transaction.units,
-                details: existingDetails
-            })}`);
-        }
-        if (transaction.type === 'add') {
-            lines.push(`🟩 ${entryToString(transaction)}`);
-        }
-        return lines;
-    }).join('\n');
-}
-
-async function submitManualSubmission(submission: ManualSubmission): Promise<string> {
+async function submitSubmission(submission: Submission): Promise<string> {
     if (isContributor(submission.user)) {
-        const listedTransactions = listTransactions(submission.transactions);
+        const listedTransactions = listTransactions(submission.transactions, todaysLog);
         const undoTransactions = invertTransactions(submission.transactions);
         await runTransactions(submission.transactions);
-        console.log(`Manual submission by contributor @${submission.user.tag} applied directly to log:\n${listedTransactions}`);
+        console.log(`Submission by contributor @${submission.user.tag} applied directly to log:\n${listedTransactions}`);
 
         const message = await sendMessageWithoutPinging({
             embeds: [
@@ -366,7 +312,7 @@ async function submitManualSubmission(submission: ManualSubmission): Promise<str
             new EmbedBuilder()
                 .setTitle('Train gen submission')
                 .setColor(0xff9900)
-                .setDescription(listTransactions(submission.transactions))
+                .setDescription(listTransactions(submission.transactions, todaysLog))
                 .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() })
         ],
         components: [
@@ -387,19 +333,12 @@ async function submitManualSubmission(submission: ManualSubmission): Promise<str
     });
     submissionsForApproval.set(message.id, submission);
 
-    console.log(`Manual submission by @${submission.user.tag} submitted for approval:\n${listTransactions(submission.transactions)}`);
+    console.log(`Submission by @${submission.user.tag} submitted for approval:\n${listTransactions(submission.transactions, todaysLog)}`);
     return '📋 Your gen has been submitted for approval by contributors.';
 }
 
-async function submitSubmission(submission: Submission): Promise<string> {
-    if (submission.type === 'manual') {
-        return await submitManualSubmission(submission);
-    }
-    // TODO: NLP submission handling
-}
-
 async function approveSubmission(interaction: ButtonInteraction, submission: Submission) {
-    const listedTransactions = listTransactions(submission.transactions);
+    const listedTransactions = listTransactions(submission.transactions, todaysLog);
     const inverse = invertTransactions(submission.transactions);
     await runTransactions(submission.transactions);
     executedHistory.set(interaction.message.id, {
@@ -462,7 +401,7 @@ async function denySubmission(interaction: ButtonInteraction, submission: Submis
             new EmbedBuilder()
                 .setTitle('Train gen denied')
                 .setColor(0xff0000)
-                .setDescription(listTransactions(submission.transactions))
+                .setDescription(listTransactions(submission.transactions, todaysLog))
                 .setFooter({
                     text: `Submission by ${submission.user.tag}, denied by ${interaction.user.tag}`,
                     iconURL: submission.user.displayAvatarURL()
@@ -492,14 +431,16 @@ function isContributor(user: User) {
 }
 
 async function handleCommandInteraction(interaction: CommandInteraction) {
-    if (interaction.commandName === 'log-allocation') {
+    if (interaction.commandName === 'ai-log') {
+        await aiLogCommand(todaysLog, interaction);
+
+    } else if (interaction.commandName === 'log-allocation') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         const units = interaction.options.get('units', true).value as string;
         const sources = (interaction.options.get('sources')?.value || `<@${interaction.user.id}>`) as string;
         const notes = interaction.options.get('notes')?.value as string | undefined;
         const index = interaction.options.get('index')?.value as number | undefined;
-        const submission: ManualSubmission = {
-            type: 'manual',
+        const submission: Submission = {
             user: interaction.user,
             transactions: [{
                 type: 'add',
@@ -519,8 +460,6 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
                 return;
             }
 
-            const uuid = crypto.randomUUID();
-            unconfirmedEntries.set(uuid, submission);
             console.log(`User @${interaction.user.tag} attempted to log an existing allocation with different details. Awaiting confirmation to update.`);
             await interaction.reply({
                 content: `⚠️ This allocation has already been logged but with different details. Do you want to update the existing entry?`,
@@ -536,20 +475,14 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
                 ],
                 components: [
                     new ActionRowBuilder<ButtonBuilder>()
-                        .addComponents(
-                            new ButtonBuilder()
-                                .setCustomId(`confirm-update:${uuid}`)
-                                .setLabel('Update')
-                                .setStyle(ButtonStyle.Primary)
-                                .setEmoji('✏️')
-                        )
+                        .addComponents(addUnconfirmedEntry(submission))
                 ],
                 flags: ["Ephemeral"],
             });
 
         } else {
             const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
-            const result = await submitManualSubmission(submission);
+            const result = await submitSubmission(submission);
             await deferReplyPromise;
             interaction.editReply(result).catch(console.error);
         }
@@ -566,8 +499,7 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
             return;
         }
         const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
-        const result = await submitManualSubmission({
-            type: 'manual',
+        const result = await submitSubmission({
             user: interaction.user,
             transactions: [{
                 type: 'remove',
@@ -636,7 +568,7 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
 async function handleButtonInteraction(interaction: ButtonInteraction) {
     if (interaction.customId.startsWith("confirm-update:")) {
         const uuid = interaction.customId.split(':')[1];
-        const submission = unconfirmedEntries.get(uuid);
+        const submission = unconfirmedSubmissions.get(uuid);
         if (submission) {
             const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
             const result = await submitSubmission(submission);
@@ -646,7 +578,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
                 embeds: [],
                 components: []
             }).catch(console.error);
-            unconfirmedEntries.delete(uuid);
+            unconfirmedSubmissions.delete(uuid);
         } else {
             interaction.reply({
                 content: '❌ Your submission has expired. Please try again.',
@@ -667,7 +599,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
             return;
         }
 
-        const listedTransactions = listTransactions(executed.undoTransactions);
+        const listedTransactions = listTransactions(executed.undoTransactions, todaysLog);
         await runTransactions(executed.undoTransactions);
         executedHistory.delete(interaction.message.id);
 
@@ -752,7 +684,6 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
 
 async function startNewLog() {
     todaysLog = {};
-    clarifyingSubmissions.clear();
     submissionsForApproval.clear();
     executedHistory.clear();
     currentLogMessage = await logChannel.send('*No allocations have been logged yet today. Check back here later!*');
@@ -785,6 +716,19 @@ client.once('ready', async () => {
     }
 
     const commands = await client.application.commands.set([
+        {
+            name: 'ai-log',
+            description: 'Amend the log using AI.',
+            options: [
+                {
+                    name: 'prompt',
+                    type: 3, // string
+                    description: "Description of the changes to make to today's log. Please mention sources.",
+                    required: true,
+                    maxLength: 512
+                }
+            ]
+        },
         {
             name: 'log-allocation',
             description: "Log one of today's allocations.",
