@@ -5,7 +5,7 @@ import { readFileSync } from 'fs';
 import {
     ActionRowBuilder,
     ButtonBuilder,
-    CommandInteraction,
+    CommandInteraction, MessageContextMenuCommandInteraction, User,
 } from "discord.js";
 import {DailyLog, LogEntryKey, LogRemoveTransaction, LogTransaction} from "./types";
 import {addUnconfirmedEntry} from "./bot";
@@ -26,15 +26,15 @@ if (GOOGLE_AI_API_KEY) {
     console.warn('Warning: GOOGLE_AI_API_KEY is not set. AI features will be disabled.');
 }
 
-export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInteraction): Promise<void> {
-    if (!google) {
-        await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
-        return;
-    }
+async function runPrompt(
+    interaction: CommandInteraction | MessageContextMenuCommandInteraction,
+    prompt: string,
+    userToCredit: User,
+    currentLog: DailyLog
+) {
+    if (!google) throw new Error('Google Generative AI is not configured.');
 
-    const prompt = interaction.options.get('prompt', true).value as string;
-    console.log(`/ai-log invoked by @${interaction.user.tag}: ${prompt}`);
-    const deferReplyPromise = interaction.deferReply({ flags: ['Ephemeral'] }).catch(console.error);
+    const deferReplyPromise = interaction.deferReply({flags: ['Ephemeral']}).catch(console.error);
     try {
         const response = await generateObject({
             model: google('gemini-2.5-flash'),
@@ -49,7 +49,7 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInt
                         index?: number;
                         withdrawn?: boolean;
                     } & LogEntryKey
-                ))[]
+                    ))[]
             } | {
                 type: "reject";
                 detail: string;
@@ -59,7 +59,7 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInt
                     {
                         type: "object",
                         properties: {
-                            type: { const: "accept" },
+                            type: {const: "accept"},
                             transactions: {
                                 type: "array",
                                 items: {
@@ -67,13 +67,13 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInt
                                         {
                                             type: "object",
                                             properties: {
-                                                type: { const: "add" },
-                                                trn: { type: "string" },
-                                                units: { type: "string" },
-                                                sources: { type: "string" },
-                                                notes: { type: "string" },
-                                                index: { type: "integer" },
-                                                withdrawn: { type: "boolean" }
+                                                type: {const: "add"},
+                                                trn: {type: "string"},
+                                                units: {type: "string"},
+                                                sources: {type: "string"},
+                                                notes: {type: "string"},
+                                                index: {type: "integer"},
+                                                withdrawn: {type: "boolean"}
                                             },
                                             required: ["type", "trn", "units", "sources"],
                                             additionalProperties: false
@@ -81,9 +81,9 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInt
                                         {
                                             type: "object",
                                             properties: {
-                                                type: { const: "remove" },
-                                                trn: { type: "string" },
-                                                units: { type: "string" }
+                                                type: {const: "remove"},
+                                                trn: {type: "string"},
+                                                units: {type: "string"}
                                             },
                                             required: ["type", "trn", "units"],
                                             additionalProperties: false
@@ -99,8 +99,8 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInt
                     {
                         type: "object",
                         properties: {
-                            type: { const: "reject" },
-                            detail: { type: "string" }
+                            type: {const: "reject"},
+                            detail: {type: "string"}
                         },
                         required: ["type", "detail"],
                         additionalProperties: false
@@ -108,7 +108,7 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInt
                 ]
             }),
             system: systemPrompt,
-            prompt: `Existing Logs:\n${dailyLogToString(currentLog)}\n\nPrompt given by user <@${interaction.user.id}>: ${prompt}`,
+            prompt: `Existing Logs:\n${dailyLogToString(currentLog)}\n\nPrompt given by user <@${userToCredit.id}>: ${prompt}`,
             temperature: 0,
         });
         await deferReplyPromise;
@@ -144,7 +144,7 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInt
                         await interaction.editReply(response.object.detail).catch(console.error);
                         return;
                 }
-                // fallthrough (shouldn't happen)
+            // fallthrough (shouldn't happen)
             case 'length':
                 console.warn('AI response too long');
                 await interaction.editReply('Sorry, but the response generated by the AI was too long.').catch(console.error);
@@ -168,8 +168,29 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInt
         }
     } catch (error) {
         console.error(error);
-        await deferReplyPromise;
         await interaction.editReply('Sorry, there was an error processing your request. Please try again later.').catch(console.error);
+    }
+}
+
+
+export async function aiLogCommand(currentLog: DailyLog, interaction: CommandInteraction): Promise<void> {
+    if (!google) {
+        await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
         return;
     }
+
+    const prompt = interaction.options.get('prompt', true).value as string;
+    console.log(`/ai-log invoked by @${interaction.user.tag}: ${prompt}`);
+    await runPrompt(interaction, prompt, interaction.user, currentLog);
+}
+
+export async function aiLogContextMenu(currentLog: DailyLog, interaction: MessageContextMenuCommandInteraction) {
+    if (!google) {
+        await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
+        return;
+    }
+
+    const prompt = interaction.targetMessage.content;
+    console.log(`AI Log Context Menu invoked by @${interaction.user.tag} on message ID ${interaction.targetMessage.id}: ${prompt}`);
+    await runPrompt(interaction, prompt, interaction.targetMessage.author, currentLog);
 }

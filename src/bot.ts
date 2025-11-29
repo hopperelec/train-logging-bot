@@ -25,7 +25,7 @@ import {
     Submission,
     TrnCategory
 } from "./types";
-import {aiLogCommand} from "./nlp";
+import {aiLogCommand, aiLogContextMenu} from "./nlp";
 import {categorizeTRN, dailyLogToString, listTransactions} from "./utils";
 
 config();
@@ -737,6 +737,10 @@ client.once('ready', async () => {
             ]
         },
         {
+            name: 'Log with AI',
+            type: 3, // message context menu
+        },
+        {
             name: 'log-allocation',
             description: "Log one of today's allocations.",
             options: [
@@ -856,6 +860,10 @@ client.on('interactionCreate', async (interaction) => {
         await handleButtonInteraction(interaction);
     } else if (interaction.isAutocomplete()) {
         await handleAutocompleteInteraction(interaction);
+    } else if (interaction.isMessageContextMenuCommand()) {
+        if (interaction.commandName === 'Log with AI') {
+            await aiLogContextMenu(todaysLog, interaction);
+        }
     }
 });
 
