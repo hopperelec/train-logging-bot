@@ -667,11 +667,21 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
             return;
         }
 
+        const listedTransactions = listTransactions(executed.undoTransactions);
         await runTransactions(executed.undoTransactions);
         executedHistory.delete(interaction.message.id);
 
         console.log(`Action ${interaction.message.id} undone by @${interaction.user.tag}`);
-        logTransaction(`↩️ ${interaction.message.url} (action by <@${executed.user.id}>) undone by <@${interaction.user.id}>`);
+        logTransaction({
+            content: `↩️ ${interaction.message.url} (action by <@${executed.user.id}>) undone by <@${interaction.user.id}>`,
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('Train log amended')
+                    .setColor(0xff0000)
+                    .setDescription(listedTransactions)
+                    .setFooter({ text: `Undone by ${interaction.user.tag}`, iconURL: executed.user.displayAvatarURL() })
+            ]
+        });
         interaction.message.edit({
             content: `↩️ This action has been undone by <@${interaction.user.id}>.`,
             components: []
