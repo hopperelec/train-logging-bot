@@ -7,24 +7,40 @@ import {
     ButtonBuilder,
     CommandInteraction, MessageContextMenuCommandInteraction, User,
 } from "discord.js";
-import {DailyLog, LogEntryKey, LogRemoveTransaction, LogTransaction} from "./types";
+import {DailyLog, LogEntryDetails, LogEntryKey, LogRemoveTransaction, LogTransaction} from "./types";
 import {addUnconfirmedEntry} from "./bot";
-import {dailyLogToString, listTransactions} from "./utils";
+import {listTransactions} from "./utils";
 
 config();
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
+const WIKI_API_URL = "https://metro.hopperelec.co.uk/wiki/api.php";
+const WIKI_QUERY = "[[Has unit identifier::+]]|?Has unit identifier|?Has unit status|limit=200";
 
 let google: GoogleGenerativeAIProvider;
 let systemPrompt: string;
+let unitStatuses: Record<string, string>;
 
 if (GOOGLE_AI_API_KEY) {
     google = createGoogleGenerativeAI({ apiKey: GOOGLE_AI_API_KEY });
     systemPrompt = readFileSync('nlp-system-prompt.txt', 'utf-8');
 
-    // TODO: Dynamically get unit statuses from wiki and include in system prompt
+    fetch(
+        `${WIKI_API_URL}?action=ask&format=json&query=${encodeURIComponent(WIKI_QUERY)}`,
+        { headers: { 'User-Agent': 'train-logging-bot' } }
+    ).then(res => res.json())
+        .then((data) => {
+            unitStatuses = {};
+            for (const page of Object.values(data.query.results) as any[]) {
+                unitStatuses[page.printouts['Has unit identifier'][0]] = page.printouts['Has unit status'][0] || 'Unknown';
+            }
+        })
+        .catch(console.error);
 } else {
     console.warn('Warning: GOOGLE_AI_API_KEY is not set. AI features will be disabled.');
 }
+
+// For compactness, details are merged into the main object
+interface NlpLogEntry extends LogEntryKey, LogEntryDetails {}
 
 async function runPrompt(
     interaction: CommandInteraction | MessageContextMenuCommandInteraction,
@@ -34,6 +50,17 @@ async function runPrompt(
 ) {
     if (!google) throw new Error('Google Generative AI is not configured.');
 
+    const formattedLog: NlpLogEntry[] = [];
+    for (const [trn, unitsMap] of Object.entries(currentLog)) {
+        for (const [units, details] of Object.entries(unitsMap)) {
+            formattedLog.push({
+                trn,
+                units,
+                ...details
+            });
+        }
+    }
+
     const deferReplyPromise = interaction.deferReply({flags: ['Ephemeral']}).catch(console.error);
     try {
         const response = await generateObject({
@@ -41,15 +68,8 @@ async function runPrompt(
             schema: jsonSchema<{
                 type: "accept";
                 transactions: (LogRemoveTransaction | (
-                    // details aren't nested in AI response
-                    {
-                        type: "add";
-                        sources: string;
-                        notes?: string;
-                        index?: number;
-                        withdrawn?: boolean;
-                    } & LogEntryKey
-                    ))[]
+                    { type: "add" } & NlpLogEntry
+                ))[]
             } | {
                 type: "reject";
                 detail: string;
@@ -108,7 +128,11 @@ async function runPrompt(
                 ]
             }),
             system: systemPrompt,
-            prompt: `Existing Logs:\n${dailyLogToString(currentLog)}\n\nPrompt given by user <@${userToCredit.id}>: ${prompt}`,
+            prompt: [
+                `Wiki Unit Statuses: ${unitStatuses?.length ? JSON.stringify(unitStatuses) : 'Unavailable'}`,
+                `Existing Logs: ${JSON.stringify(formattedLog)}`,
+                `Prompt given by user <@${userToCredit.id}>: ${prompt}`,
+            ].join('\n'),
             temperature: 0,
         });
         await deferReplyPromise;
