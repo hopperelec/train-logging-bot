@@ -100,14 +100,6 @@ function logTransaction(message: string | BaseMessageOptions) {
     if (transactionChannel) sendMessageWithoutPinging(message, transactionChannel).then();
 }
 
-function createAmendedEmbed(submission: Submission) {
-    return new EmbedBuilder()
-        .setTitle('Train log amended')
-        .setColor(0x00ff00)
-        .setDescription(listTransactions(submission.transactions))
-        .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() });
-}
-
 const TRN_REGEX = new RegExp(/^T?(\d{3})/);
 function categorizeTRN(trn: TRN): TrnCategory {
     const match = trn.match(TRN_REGEX);
@@ -333,14 +325,19 @@ function listTransactions(transactions: LogTransaction[], referenceLog = todaysL
 
 async function submitManualSubmission(submission: ManualSubmission): Promise<string> {
     if (isContributor(submission.user)) {
-        const embed = createAmendedEmbed(submission);
         const listedTransactions = listTransactions(submission.transactions);
         const undoTransactions = invertTransactions(submission.transactions);
         await runTransactions(submission.transactions);
         console.log(`Manual submission by contributor @${submission.user.tag} applied directly to log:\n${listedTransactions}`);
 
         const message = await sendMessageWithoutPinging({
-            embeds: [embed],
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('Train log amended')
+                    .setColor(0x00ff00)
+                    .setDescription(listedTransactions)
+                    .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() })
+            ],
             components: [
                 new ActionRowBuilder<ButtonBuilder>()
                     .addComponents(
@@ -402,7 +399,6 @@ async function submitSubmission(submission: Submission): Promise<string> {
 }
 
 async function approveSubmission(interaction: ButtonInteraction, submission: Submission) {
-    const embed = createAmendedEmbed(submission);
     const listedTransactions = listTransactions(submission.transactions);
     const inverse = invertTransactions(submission.transactions);
     await runTransactions(submission.transactions);
@@ -416,7 +412,16 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
     console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
     logTransaction({
         content: `✅ ${interaction.message.url} (submission by <@${submission.user.id}>) approved by <@${interaction.user.id}>`,
-        embeds: [embed]
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('Train log amended')
+                .setColor(0x00ff00)
+                .setDescription(listedTransactions)
+                .setFooter({
+                    text: `Submission by ${submission.user.tag}, approved by ${interaction.user.tag}`,
+                    iconURL: submission.user.displayAvatarURL()
+                })
+        ]
     });
 
     return {
