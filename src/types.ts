@@ -37,11 +37,6 @@ export type LogTransaction = LogAddTransaction | LogRemoveTransaction;
 
 // NLP interactions
 
-export interface NlpClarification {
-    llmQuestion: string;
-    userAnswer: string;
-}
-
 interface BaseNlpInteraction {
     prompt: string;
 }
@@ -49,40 +44,23 @@ interface BaseNlpInteraction {
 export interface RejectedNlpInteraction extends BaseNlpInteraction {
     type: 'rejected';
     rejectionReason: string;
-    clarification?: NlpClarification;
-}
-
-export interface ClarifyingNlpInteraction extends BaseNlpInteraction {
-    type: 'clarifying';
-    llmQuestion: string;
 }
 
 export interface AcceptedNlpInteraction extends BaseNlpInteraction {
     type: 'accepted';
     transactions: LogTransaction[];
-    clarification?: NlpClarification;
 }
 
-export type NlpInteraction = RejectedNlpInteraction | ClarifyingNlpInteraction | AcceptedNlpInteraction;
+export type NlpInteraction = RejectedNlpInteraction | AcceptedNlpInteraction;
 
 // Submissions
 
-interface BaseSubmission {
+export interface Submission {
     user: User;
     transactions: LogTransaction[];
 }
 
-export interface ManualSubmission extends BaseSubmission {
-    type: 'manual';
-}
-
-export interface NlpSubmission extends BaseSubmission, BaseNlpInteraction {
-    type: 'nlp';
-}
-
-export type Submission = ManualSubmission | NlpSubmission;
-
-export interface ExecutedSubmission extends BaseSubmission {
+export interface ExecutedSubmission extends Submission {
     submissionId: Snowflake;
     undoTransactions: LogTransaction[];
 }
