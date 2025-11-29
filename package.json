@@ -8,6 +8,8 @@
 		"build": "tsc"
 	},
 	"dependencies": {
+		"@ai-sdk/google": "^2.0.44",
+		"ai": "^5.0.104",
 		"discord.js": "^14.19.3",
 		"dotenv": "^16.5.0"
 	},

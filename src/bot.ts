@@ -17,30 +17,44 @@ import {
     DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
 } from 'discord.js';
 import { config } from 'dotenv';
-import {normalizeDescription, normalizeTRN} from "./normalization";
-import {GenEntry, Submission, TRN, TrnCategory} from "./types";
+import {normalizeTRN, normalizeUnits} from "./normalization";
+import {
+    ClarifyingNlpInteraction,
+    DailyLog,
+    ExecutedSubmission, LogEntry,
+    LogTransaction,
+    ManualSubmission,
+    Submission,
+    TRN,
+    TrnCategory
+} from "./types";
 
 config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
-const APPROVAL_CHANNEL_ID = process.env.APPROVAL_CHANNEL_ID;
-const TRANSACTION_CHANNEL_ID = process.env.TRANSACTION_CHANNEL_ID;
-const CONTRIBUTOR_GUILD_ID = process.env.CONTRIBUTOR_GUILD_ID;
-const CONTRIBUTOR_ROLE_ID = process.env.CONTRIBUTOR_ROLE_ID;
 if (!DISCORD_TOKEN) {
     console.error('Missing DISCORD_TOKEN environment variable.');
     process.exit(1);
 }
+const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
+if (!GOOGLE_AI_API_KEY) {
+    console.error('Missing GOOGLE_AI_API_KEY environment variable.');
+    process.exit(1);
+}
+const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 if (!LOG_CHANNEL_ID) {
     console.error('Missing LOG_CHANNEL_ID environment variable.');
     process.exit(1);
 }
+const APPROVAL_CHANNEL_ID = process.env.APPROVAL_CHANNEL_ID;
 if (!APPROVAL_CHANNEL_ID) {
     console.warn('Missing APPROVAL_CHANNEL_ID environment variable. Non-contributors will not be able to submit entries for approval.');
 }
+const TRANSACTION_CHANNEL_ID = process.env.TRANSACTION_CHANNEL_ID;
 if (!TRANSACTION_CHANNEL_ID) {
     console.warn('Missing TRANSACTION_CHANNEL_ID environment variable. Transactions will only be logged to the console.');
 }
+const CONTRIBUTOR_GUILD_ID = process.env.CONTRIBUTOR_GUILD_ID;
+const CONTRIBUTOR_ROLE_ID = process.env.CONTRIBUTOR_ROLE_ID;
 if (!CONTRIBUTOR_GUILD_ID !== !CONTRIBUTOR_ROLE_ID) {
     console.error('Both CONTRIBUTOR_GUILD_ID and CONTRIBUTOR_ROLE_ID must be set if one is set.');
     process.exit(1);
@@ -49,7 +63,6 @@ if (!CONTRIBUTOR_GUILD_ID) {
     console.warn('Missing CONTRIBUTOR_GUILD_ID and CONTRIBUTOR_ROLE_ID environment variables. Anyone will be able to log entries.');
 }
 
-const MAX_SEARCH_RESULTS = 10; // Maximum number of search results to return
 const CHARACTER_LIMIT = 2000; // Discord message character limit
 
 const CATEGORY_HEADERS = {
@@ -59,9 +72,9 @@ const CATEGORY_HEADERS = {
 };
 
 const CATEGORY_DISPLAY_NAMES = {
-    green: 'green line trains',
-    yellow: 'yellow line trains',
-    other: 'other trains'
+    green: 'green line allocations',
+    yellow: 'yellow line allocations',
+    other: 'other allocations'
 }
 
 const client = new Client({
@@ -75,17 +88,24 @@ let logChannel: TextChannel;
 let approvalChannel: TextChannel;
 let transactionChannel: TextChannel;
 let contributorGuild: Guild;
-let logTrainCommandId: string;
+let logAllocationCommandId: string;
 let currentLogMessage: Message | Record<TrnCategory, Message>;
-const todaysTrains = new Map<TRN, GenEntry>();
-const unconfirmedEntries = new Map<string, GenEntry & {
-    user: User;
-    trn: TRN;
-}>;
-const publicSubmissions = new Map<Snowflake, Submission>();
+let todaysLog: DailyLog = {};
+const clarifyingSubmissions = new Map<Snowflake, ClarifyingNlpInteraction>();
+const submissionsForApproval = new Map<Snowflake, Submission>();
+const unconfirmedEntries = new Map<Snowflake, Submission>();
+const executedHistory = new Map<Snowflake, ExecutedSubmission>();
 
 function logTransaction(message: string | BaseMessageOptions) {
     if (transactionChannel) sendMessageWithoutPinging(message, transactionChannel).then();
+}
+
+function createAmendedEmbed(submission: Submission) {
+    return new EmbedBuilder()
+        .setTitle('Train log amended')
+        .setColor(0x00ff00)
+        .setDescription(listTransactions(submission.transactions))
+        .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() });
 }
 
 const TRN_REGEX = new RegExp(/^T?(\d{3})/);
@@ -98,10 +118,21 @@ function categorizeTRN(trn: TRN): TrnCategory {
     return 'other';
 }
 
-function listEntries(entries: ({ trn: TRN } & GenEntry)[]) {
-    return entries
-        .sort((a, b) => a.trn.localeCompare(b.trn))
-        .map(entry => `${entry.trn} - ${entry.description}\n-# ${entry.source}`)
+function dailyLogToString(dailyLog: DailyLog) {
+    return Object.entries(dailyLog)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([trn, allocations]) => {
+            const sortedAllocations = Object.entries(allocations)
+                .sort(([,a], [,b]) => (a.index || 0) - (b.index || 0));
+            const descriptions = sortedAllocations.map(([units, details]) => {
+                units = normalizeUnits(units);
+                return details.notes ? `${units} (${details.notes})` : units
+            });
+            const sources = sortedAllocations.map(
+                ([, details]) => details.sources
+            );
+            return `${trn} - ${descriptions.join('; ')}\n-# ${sources.join('; ')}`;
+        })
         .join('\n');
 }
 
@@ -167,23 +198,23 @@ async function editOrSendMessage(message: Message, content: string | BaseMessage
 }
 
 async function updateLogMessage() {
-    const categories: Record<string, ({ trn: TRN } & GenEntry)[]> = {};
-    for (const [trn, entry] of todaysTrains.entries()) {
+    const categories: Record<string, DailyLog> = {};
+    for (const [trn, entry] of Object.entries(todaysLog)) {
         const line = categorizeTRN(trn);
-        if (!categories[line]) categories[line] = [];
-        categories[line].push({ trn, ...entry });
+        if (!categories[line]) categories[line] = {};
+        categories[line][trn] = entry;
     }
 
     function renderSingleMessageCategory(category: TrnCategory) {
         const entries = categories[category];
-        if (!entries?.length) return renderEmptyCategory(category);
-        return `${CATEGORY_HEADERS[category]}\n${listEntries(entries)}`;
+        if (!entries || Object.keys(entries).length === 0) return renderEmptyCategory(category);
+        return `${CATEGORY_HEADERS[category]}\n${dailyLogToString(entries)}`;
     }
 
     function renderMultipleMessageCategory(category: TrnCategory): string | BaseMessageOptions {
         const entries = categories[category];
-        if (!entries?.length) return renderEmptyCategory(category);
-        const content = `${CATEGORY_HEADERS[category]}\n${listEntries(entries)}`;
+        if (!entries || Object.keys(entries).length === 0) return renderEmptyCategory(category);
+        const content = `${CATEGORY_HEADERS[category]}\n${dailyLogToString(entries)}`;
         if (content.length > CHARACTER_LIMIT) {
             return {
                 content: `${CATEGORY_HEADERS[category]}\nToo many ${CATEGORY_DISPLAY_NAMES[category]} have been logged today to fit in a single message, so they have been attached as a file.`,
@@ -229,49 +260,117 @@ async function updateLogMessage() {
     }
 }
 
-async function addEntryToLog(trn: TRN, entry: GenEntry) {
-    todaysTrains.set(trn, entry);
+function invertTransactions(transactions: LogTransaction[], referenceLog = todaysLog): LogTransaction[] {
+    const inverse: LogTransaction[] = [];
+    // Process in reverse to maintain state validity
+    for (const tx of [...transactions].reverse()) {
+        const existingDetails = referenceLog[tx.trn]?.[tx.units];
+        if (tx.type === 'add' && !existingDetails) {
+            inverse.push({
+                type: 'remove',
+                trn: tx.trn,
+                units: tx.units
+            });
+        } else {
+            inverse.push({
+                type: 'add',
+                trn: tx.trn,
+                units: tx.units,
+                details: existingDetails
+            });
+        }
+    }
+    return inverse;
+}
+
+async function runTransactions(transactions: LogTransaction[]) {
+    for (const transaction of transactions) {
+        if (transaction.type === 'add') {
+            if (!todaysLog[transaction.trn]) {
+                todaysLog[transaction.trn] = {};
+            }
+            todaysLog[transaction.trn][transaction.units] = transaction.details;
+        } else if (transaction.type === 'remove') {
+            if (todaysLog[transaction.trn]) {
+                delete todaysLog[transaction.trn][transaction.units];
+                if (Object.keys(todaysLog[transaction.trn]).length === 0) {
+                    delete todaysLog[transaction.trn];
+                }
+            }
+        }
+    }
     await updateLogMessage();
 }
 
-async function removeEntryFromLog(trn: TRN) {
-    if (todaysTrains.delete(trn)) {
-        await updateLogMessage();
+function entryToString(entry: LogEntry) {
+    const detailsParts = [`source: ${entry.details.sources}`];
+    if (entry.details.notes) {
+        detailsParts.push(`notes: ${entry.details.notes}`);
     }
+    if (entry.details.index !== undefined) {
+        detailsParts.push(`index: ${entry.details.index}`);
+    }
+    return `${entry.trn} - ${entry.units} (${detailsParts.join(' | ')})`;
 }
 
-async function submitNewEntry(user: User, trn: TRN, entry: GenEntry) {
-    if (isContributor(user)) {
-        await addEntryToLog(trn, entry);
-        console.log(`Train "${trn}" logged by contributor @${user.tag}: ${entry.description} (Source: ${entry.source})`);
-        logTransaction({
-            embeds: [
-                new EmbedBuilder()
-                    .setTitle('Train entry logged')
-                    .setColor(0x00ff00)
-                    .addFields(
-                        { name: 'TRN', value: trn, inline: true },
-                        { name: 'Description', value: entry.description, inline: true },
-                        { name: 'Source', value: entry.source, inline: true },
-                        { name: 'Logged by', value: `<@${user.id}>` }
+function listTransactions(transactions: LogTransaction[], referenceLog = todaysLog) {
+    return transactions.flatMap(transaction => {
+        const lines = []
+        const existingDetails = referenceLog[transaction.trn]?.[transaction.units];
+        if (existingDetails) {
+            lines.push(`🟥 ${entryToString({
+                trn: transaction.trn,
+                units: transaction.units,
+                details: existingDetails
+            })}`);
+        }
+        if (transaction.type === 'add') {
+            lines.push(`🟩 ${entryToString(transaction)}`);
+        }
+        return lines;
+    }).join('\n');
+}
+
+async function submitManualSubmission(submission: ManualSubmission): Promise<string> {
+    if (isContributor(submission.user)) {
+        const embed = createAmendedEmbed(submission);
+        const listedTransactions = listTransactions(submission.transactions);
+        const undoTransactions = invertTransactions(submission.transactions);
+        await runTransactions(submission.transactions);
+        console.log(`Manual submission by contributor @${submission.user.tag} applied directly to log:\n${listedTransactions}`);
+
+        const message = await sendMessageWithoutPinging({
+            embeds: [embed],
+            components: [
+                new ActionRowBuilder<ButtonBuilder>()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('undo')
+                            .setLabel('Undo')
+                            .setStyle(ButtonStyle.Danger)
+                            .setEmoji('↩️')
                     )
             ]
-        });
-        return `✅ Train "${trn}" has been successfully added to the log!`;
+        }, transactionChannel || logChannel);
+
+        if (message) {
+            executedHistory.set(message.id, {
+                submissionId: message.id,
+                ...submission,
+                undoTransactions,
+            });
+        }
+        return `✅ Your changes have been applied to the log.`;
     }
-    if (!approvalChannel) return '❌ Only contributors can log trains right now.';
+    if (!approvalChannel) return '❌ Only contributors can update the log right now.';
 
     const message = await approvalChannel.send({
         embeds: [
             new EmbedBuilder()
                 .setTitle('Train gen submission')
                 .setColor(0xff9900)
-                .addFields(
-                    { name: 'TRN', value: trn, inline: true },
-                    { name: 'Description', value: entry.description, inline: true },
-                    { name: 'Source', value: entry.source, inline: true },
-                    { name: 'Submitted by', value: `<@${user.id}>` },
-                )
+                .setDescription(listTransactions(submission.transactions))
+                .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() })
         ],
         components: [
             new ActionRowBuilder<ButtonBuilder>()
@@ -289,89 +388,47 @@ async function submitNewEntry(user: User, trn: TRN, entry: GenEntry) {
                 )
         ]
     });
-    publicSubmissions.set(message.id, { user, trn, ...entry, previous: todaysTrains.get(trn) });
+    submissionsForApproval.set(message.id, submission);
 
-    console.log(`New submission (${message.id}) by @${user.tag}: ${JSON.stringify({ trn, ...entry})}`);
+    console.log(`Manual submission by @${submission.user.tag} submitted for approval:\n${listTransactions(submission.transactions)}`);
     return '📋 Your gen has been submitted for approval by contributors.';
 }
 
-async function submitEntryUpdate(user: User, trn: TRN, newEntry: GenEntry) {
-    if (isContributor(user)) {
-        await addEntryToLog(trn, newEntry);
-        console.log(`Train "${trn}" updated by contributor @${user.tag}: ${newEntry.description} (Source: ${newEntry.source})`);
-        logTransaction({
-            embeds: [
-                new EmbedBuilder()
-                    .setTitle('Train entry updated')
-                    .setColor(0xff9900)
-                    .addFields(
-                        { name: 'TRN', value: trn, inline: true },
-                        { name: 'New description', value: newEntry.description, inline: true },
-                        { name: 'New source', value: newEntry.source, inline: true },
-                        { name: 'Updated by', value: `<@${user.id}>` }
-                    )
-            ]
-        });
-        return `✅ Train "${trn}" has been successfully updated in the log!`;
+async function submitSubmission(submission: Submission): Promise<string> {
+    if (submission.type === 'manual') {
+        return await submitManualSubmission(submission);
     }
-    if (!approvalChannel) return '❌ Only contributors can update trains right now.';
-
-    const currentEntry = todaysTrains.get(trn);
-    const message = await approvalChannel.send({
-        embeds: [
-            new EmbedBuilder()
-                .setTitle('Train gen update submission')
-                .setColor(0xff9900)
-                .addFields(
-                    { name: 'TRN', value: trn },
-                    { name: 'Current description', value: currentEntry.description, inline: true },
-                    { name: 'Current source', value: currentEntry.source, inline: true },
-                    { name: '\u200b', value: '\u200b', inline: true }, // Empty field to force current and new entries to be on separate lines
-                    { name: 'New description', value: newEntry.description, inline: true },
-                    { name: 'New source', value: newEntry.source, inline: true },
-                    { name: '\u200b', value: '\u200b', inline: true }, // Empty field to align "New source" with "Current source"
-                    { name: 'Submitted by', value: `<@${user.id}>` }
-                )
-        ],
-        components: [
-            new ActionRowBuilder<ButtonBuilder>()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('approve')
-                        .setLabel('Approve')
-                        .setStyle(ButtonStyle.Primary)
-                        .setEmoji('✏️'),
-                    new ButtonBuilder()
-                        .setCustomId('deny')
-                        .setLabel('Deny')
-                        .setStyle(ButtonStyle.Secondary)
-                        .setEmoji('❌')
-                )
-        ]
-    });
-    publicSubmissions.set(message.id, { user, trn, ...newEntry });
-
-    console.log(`Update submission (${message.id}) by @${user.tag}: ${JSON.stringify({ trn, ...newEntry })}`);
-    return '📋 Your gen has been submitted for approval by contributors.';
+    // TODO: NLP submission handling
 }
 
 async function approveSubmission(interaction: ButtonInteraction, submission: Submission) {
-    submission.previous = todaysTrains.get(submission.trn);
-    await addEntryToLog(submission.trn, { description: submission.description, source: submission.source || `<@${submission.user.id}>` });
+    const embed = createAmendedEmbed(submission);
+    const listedTransactions = listTransactions(submission.transactions);
+    const inverse = invertTransactions(submission.transactions);
+    await runTransactions(submission.transactions);
+    executedHistory.set(interaction.message.id, {
+        submissionId: interaction.message.id,
+        user: interaction.user,
+        transactions: submission.transactions,
+        undoTransactions: inverse
+    });
+
     console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
-    logTransaction(`✅ ${interaction.message.url} (submission for train "${submission.trn}" by <@${submission.user.id}>) approved by <@${interaction.user.id}>`);
+    logTransaction({
+        content: `✅ ${interaction.message.url} (submission by <@${submission.user.id}>) approved by <@${interaction.user.id}>`,
+        embeds: [embed]
+    });
+
     return {
         embeds: [
             new EmbedBuilder()
-                .setTitle('Train entry approved')
+                .setTitle('Train gen approved')
                 .setColor(0x00ff00)
-                .setDescription(`Approved by <@${interaction.user.id}>`)
-                .addFields(
-                    { name: 'TRN', value: submission.trn, inline: true },
-                    { name: 'Description', value: submission.description, inline: true },
-                    { name: 'Source', value: submission.source, inline: true },
-                    { name: 'Submitted by', value: `<@${submission.user.id}>` }
-                )
+                .setDescription(listedTransactions)
+                .setFooter({
+                    text: `Submission by ${submission.user.tag}, approved by ${interaction.user.tag}`,
+                    iconURL: submission.user.displayAvatarURL()
+                })
         ],
         components: [
             new ActionRowBuilder<ButtonBuilder>()
@@ -394,19 +451,17 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
 
 async function denySubmission(interaction: ButtonInteraction, submission: Submission) {
     console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
-    logTransaction(`❌ ${interaction.message.url} (submission for train "${submission.trn}" by <@${submission.user.id}>) denied by <@${interaction.user.id}>`);
+    logTransaction(`❌ ${interaction.message.url} (submission by <@${submission.user.id}>) denied by <@${interaction.user.id}>`);
     return {
         embeds: [
             new EmbedBuilder()
-                .setTitle('Train entry denied')
+                .setTitle('Train gen denied')
                 .setColor(0xff0000)
-                .setDescription(`Denied by <@${interaction.user.id}>`)
-                .addFields(
-                    { name: 'TRN', value: submission.trn, inline: true },
-                    { name: 'Description', value: submission.description, inline: true },
-                    { name: 'Source', value: submission.source, inline: true },
-                    { name: 'Submitted by', value: `<@${submission.user.id}>` }
-                )
+                .setDescription(listTransactions(submission.transactions))
+                .setFooter({
+                    text: `Submission by ${submission.user.tag}, denied by ${interaction.user.tag}`,
+                    iconURL: submission.user.displayAvatarURL()
+                })
         ],
         components: [
             new ActionRowBuilder<ButtonBuilder>()
@@ -427,150 +482,159 @@ async function denySubmission(interaction: ButtonInteraction, submission: Submis
     }
 }
 
-async function undoApprovedSubmission(interaction: ButtonInteraction, submission: Submission) {
-    if (submission.previous) {
-        await addEntryToLog(submission.trn, submission.previous);
-    } else {
-        await removeEntryFromLog(submission.trn);
-    }
-    return await denySubmission(interaction, submission);
-}
-
 function isContributor(user: User) {
     return !contributorGuild || contributorGuild.members.cache.get(user.id).roles.cache.some(role => role.id === CONTRIBUTOR_ROLE_ID);
 }
 
 async function handleCommandInteraction(interaction: CommandInteraction) {
-    if (interaction.commandName === 'log-train') {
+    if (interaction.commandName === 'log-allocation') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
-        const entry = {
-            description: normalizeDescription(interaction.options.get('description', true).value as string),
-            source: (interaction.options.get('source')?.value || `<@${interaction.user.id}>`) as string
+        const units = interaction.options.get('units', true).value as string;
+        const sources = (interaction.options.get('sources')?.value || `<@${interaction.user.id}>`) as string;
+        const notes = interaction.options.get('notes')?.value as string | undefined;
+        const index = interaction.options.get('index')?.value as number | undefined;
+        const submission: ManualSubmission = {
+            type: 'manual',
+            user: interaction.user,
+            transactions: [{
+                type: 'add',
+                trn,
+                units,
+                details: { sources, notes, index }
+            }]
         };
-        const existingEntry = todaysTrains.get(trn);
+
+        const existingEntry = todaysLog[trn]?.[units];
         if (existingEntry) {
-            if (existingEntry.description === entry.description && existingEntry.source === entry.source) {
+            if (existingEntry.sources === sources && existingEntry.notes === notes && existingEntry.index === index) {
                 await interaction.reply({
                     content: `❌ This entry is already in the log`,
                     flags: ["Ephemeral"]
                 });
-            } else {
-                const differenceString = existingEntry.description !== entry.description
-                    ? (existingEntry.source !== entry.source ? "description and source" : "description")
-                    : "source";
-                const uuid = crypto.randomUUID();
-                unconfirmedEntries.set(uuid, { ...entry, user: interaction.user, trn });
-                await interaction.reply({
-                    content: `⚠️ An entry is already logged for this TRN, with a different ${differenceString}. Do you want to update it?`,
-                    embeds: [
-                        new EmbedBuilder()
-                            .setTitle(`Existing entry for ${trn}`)
-                            .addFields(
-                                { name: 'Description', value: existingEntry.description, inline: true },
-                                { name: 'Source', value: existingEntry.source, inline: true }
-                            )
-                    ],
-                    components: [
-                        new ActionRowBuilder<ButtonBuilder>()
-                            .addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`confirm-update:${uuid}`)
-                                    .setLabel('Update')
-                                    .setStyle(ButtonStyle.Primary)
-                                    .setEmoji('✏️')
-                            )
-                    ],
-                    flags: ["Ephemeral"],
-                });
+                return;
             }
+
+            const uuid = crypto.randomUUID();
+            unconfirmedEntries.set(uuid, submission);
+            console.log(`User @${interaction.user.tag} attempted to log an existing allocation with different details. Awaiting confirmation to update.`);
+            await interaction.reply({
+                content: `⚠️ This allocation has already been logged but with different details. Do you want to update the existing entry?`,
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('Existing entry details')
+                        .setColor(0xffcc00)
+                        .setFields(
+                            { name: 'Sources', value: existingEntry.sources },
+                            { name: 'Notes', value: existingEntry.notes || '*None*' },
+                            { name: 'Index', value: existingEntry.index !== undefined ? existingEntry.index.toString() : '*None*' }
+                        )
+                ],
+                components: [
+                    new ActionRowBuilder<ButtonBuilder>()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`confirm-update:${uuid}`)
+                                .setLabel('Update')
+                                .setStyle(ButtonStyle.Primary)
+                                .setEmoji('✏️')
+                        )
+                ],
+                flags: ["Ephemeral"],
+            });
 
         } else {
             const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
-            const result = await submitNewEntry(interaction.user, trn, entry);
+            const result = await submitManualSubmission(submission);
             await deferReplyPromise;
             interaction.editReply(result).catch(console.error);
         }
 
-    } else if (interaction.commandName === 'remove-train') {
-        if (!isContributor(interaction.user)) {
+    } else if (interaction.commandName === 'remove-allocation') {
+        const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
+        const units = interaction.options.get('units', true).value as string;
+        const existingEntry = todaysLog[trn]?.[units];
+        if (!existingEntry) {
             await interaction.reply({
-                content: '❌ Only contributors can remove trains from the log.',
+                content: `❌ No such allocation is logged for today.`,
                 flags: ["Ephemeral"]
             });
             return;
         }
+        const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
+        const result = await submitManualSubmission({
+            type: 'manual',
+            user: interaction.user,
+            transactions: [{
+                type: 'remove',
+                trn,
+                units
+            }]
+        });
+        await deferReplyPromise;
+        interaction.editReply(result).catch(console.error);
 
+    } else if (interaction.commandName === 'search-trn') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
-        if (todaysTrains.has(trn)) {
-            const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
-            await removeEntryFromLog(trn);
-            console.log(`Train "${trn}" removed from today's log by @${interaction.user.tag}`);
-            logTransaction(`🗑️ Train "${trn}" removed from today's log by <@${interaction.user.id}>`);
-            await deferReplyPromise;
-            interaction.editReply(`✅ Train "${trn}" has been successfully removed from today's log.`).catch(console.error);
-        } else {
-            interaction.reply(`❌ Train "${trn}" is not currently logged for today.`).catch(console.error);
-        }
-
-    } else if (interaction.commandName === 'logged-trn') {
-        const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
-        const entry = todaysTrains.get(trn);
+        const entry = todaysLog[trn];
         if (entry) {
             await interaction.reply({
                 embeds: [
-                    {
-                        title: `Logged entry for ${trn}`,
-                        fields: [
-                            { name: 'Description', value: entry.description, inline: true },
-                            { name: 'Source', value: entry.source, inline: true }
-                        ]
-                    }
+                    new EmbedBuilder()
+                        .setTitle(`🔍 Search results for TRN "${trn}"`)
+                        .setDescription(dailyLogToString({ [trn]: entry }))
+                ]
+            });
+        } else {
+            await interaction.reply(`❌ Nothing has been logged for TRN "${trn}" today.`);
+        }
+
+    } else if (interaction.commandName === 'search-unit') {
+        const query = (interaction.options.get('query', true).value as string).toLowerCase();
+        const results: DailyLog = {};
+        for (const [trn, allocations] of Object.entries(todaysLog)) {
+            for (const [units, details] of Object.entries(allocations)) {
+                if (units.toLowerCase().includes(query)) {
+                    if (!results[trn]) results[trn] = {};
+                    results[trn][units] = details;
+                }
+            }
+        }
+        if (Object.keys(results).length === 0) {
+            await interaction.reply(`❌ No logged allocations contain a unit matching "${query}" today.`);
+            return;
+        }
+        const description = dailyLogToString(results);
+        if (description.length <= CHARACTER_LIMIT) {
+            await interaction.reply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle(`🔍 Search results for unit "${query}"`)
+                        .setDescription(description)
                 ]
             });
         } else {
             await interaction.reply({
-                content: `❌ No entry found for "${trn}" in today's log.`,
-                flags: ["Ephemeral"]
-            });
-        }
-
-    } else if (interaction.commandName === 'search-logged-trains') {
-        const query = (interaction.options.get('query', true).value as string).toLowerCase();
-        const results = Array.from(todaysTrains.entries())
-            .filter(([_, entry]) => entry.description.toLowerCase().includes(query));
-        if (results.length > 0) {
-            const embed = new EmbedBuilder()
-                .setTitle(`🔍 Search results for "${query}"`)
-                .addFields(
-                    results.map(([trn, entry]) => ({
-                        name: trn,
-                        value: `${entry.description}\n-# ${entry.source}`,
-                    })).slice(0, MAX_SEARCH_RESULTS)
-                );
-            if (results.length > MAX_SEARCH_RESULTS) {
-                embed.setFooter({ text: `Only showing first ${MAX_SEARCH_RESULTS} results out of ${results.length}` });
-            }
-            await interaction.reply({ embeds: [embed] });
-        } else {
-            await interaction.reply({
-                content: `❌ No entries found matching "${query}".`
+                content: `🔍 Search results for unit "${query}" are too long to display here, so they have been attached as a file.`,
+                files: [{
+                    name: `Search results - ${new Date().toISOString().split('T')[0]} - ${query}.txt`,
+                    attachment: Buffer.from(replaceDiscordFeaturesWithNames(description))
+                }]
             });
         }
 
     } else if (interaction.commandName === 'usage') {
-        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. To submit a train for the day, use </log-train:${logTrainCommandId}>. As you type the command, Discord will show you the command options and describe what to put in them. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. If it is a non-passenger vehicle, contributors may also post it in <#1377249182116479027>.`);
+        // TODO: This will need thoroughly changed
+        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. To submit a train for the day, use </log-allocation:${logAllocationCommandId}>. As you type the command, Discord will show you the command options and describe what to put in them. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. If it is a non-passenger vehicle, contributors may also post it in <#1377249182116479027>.`);
     }
 }
 
 async function handleButtonInteraction(interaction: ButtonInteraction) {
     if (interaction.customId.startsWith("confirm-update:")) {
         const uuid = interaction.customId.split(':')[1];
-        const entry = unconfirmedEntries.get(uuid);
-        if (entry) {
+        const submission = unconfirmedEntries.get(uuid);
+        if (submission) {
             const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
-            const result = await submitEntryUpdate(
-                entry.user, entry.trn, { description: entry.description, source: entry.source }
-            );
+            const result = await submitSubmission(submission);
             await deferUpdatePromise;
             interaction.editReply({
                 content: result,
@@ -584,55 +648,99 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
                 flags: ["Ephemeral"]
             }).catch(console.error);
         }
-    } else {
-        const submission = publicSubmissions.get(interaction.message.id);
-        if (!submission) {
-            interaction.reply({
-                content: '❌ This submissions no longer exists.',
-                flags: ["Ephemeral"]
-            }).catch(console.error);
-            return;
-        }
+        return;
+    }
 
+    if (interaction.customId === 'undo') {
         if (!isContributor(interaction.user)) {
-            interaction.reply({
-                content: '❌ You do not have permission to manage submissions.',
-                flags: ["Ephemeral"]
-            }).catch(console.error);
+            interaction.reply({ content: '❌ Only contributors can undo actions.', flags: ["Ephemeral"] }).catch(console.error);
+            return;
+        }
+        const executed = executedHistory.get(interaction.message.id);
+        if (!executed) {
+            interaction.reply({ content: '❌ This action can no longer be undone.', flags: ["Ephemeral"] }).catch(console.error);
             return;
         }
 
-        if (interaction.customId === 'deny') {
-            // Denying doesn't affect the log, so no need to defer the update
-            await interaction.update(await denySubmission(interaction, submission));
-        } else {
-            const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
-            const result = interaction.customId === 'approve'
-                ? await approveSubmission(interaction, submission)
-                : await undoApprovedSubmission(interaction, submission);
-            await deferUpdatePromise;
-            interaction.editReply(result).catch(console.error);
-        }
+        await runTransactions(executed.undoTransactions);
+        executedHistory.delete(interaction.message.id);
+
+        console.log(`Action ${interaction.message.id} undone by @${interaction.user.tag}`);
+        logTransaction(`↩️ ${interaction.message.url} (action by <@${executed.user.id}>) undone by <@${interaction.user.id}>`);
+        interaction.message.edit({
+            content: `↩️ This action has been undone by <@${interaction.user.id}>.`,
+            components: []
+        }).catch(console.error);
+        return;
+    }
+
+    const submission = submissionsForApproval.get(interaction.message.id);
+    if (!submission) {
+        interaction.reply({
+            content: '❌ This submissions no longer exists.',
+            flags: ["Ephemeral"]
+        }).catch(console.error);
+        return;
+    }
+
+    if (!isContributor(interaction.user)) {
+        interaction.reply({
+            content: '❌ You do not have permission to manage submissions.',
+            flags: ["Ephemeral"]
+        }).catch(console.error);
+        return;
+    }
+
+    if (interaction.customId === 'approve') {
+        const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
+        const result = await approveSubmission(interaction, submission);
+        await deferUpdatePromise;
+        interaction.editReply(result).catch(console.error);
+    } else if (interaction.customId === 'deny') {
+        // Denying doesn't affect the log, so no need to defer the update
+        await interaction.update(await denySubmission(interaction, submission));
     }
 }
 
 async function handleAutocompleteInteraction(interaction: AutocompleteInteraction) {
     const focused = interaction.options.getFocused(true);
     if (focused.name === 'trn') {
-        const trn = focused.value as string;
+        const trn = (focused.value as string).toLowerCase();
         await interaction.respond(
-            Array.from(todaysTrains.keys())
-                .filter(key => key.toLowerCase().includes(trn.toLowerCase()))
+            Object.keys(todaysLog)
+                .filter(key => key.toLowerCase().includes(trn))
                 .map(key => ({ name: key, value: key }))
                 .slice(0, 25)
         ).catch(console.error);
+    } else if (focused.name === 'units') {
+        let trn = interaction.options.get('trn')?.value as string;
+        if (trn) {
+            trn = normalizeTRN(trn);
+            const units = (focused.value as string).toLowerCase();
+            const existingUnits = todaysLog[trn]
+            const otherLoggedUnits = Object.entries(todaysLog)
+                .filter(([key]) => key !== trn)
+                .flatMap(([,allocations]) => Object.keys(allocations));
+            const suggestions = [
+                ...(existingUnits ? Object.keys(existingUnits) : []),
+                ...otherLoggedUnits
+            ];
+            await interaction.respond(
+                suggestions
+                    .filter(key => key.toLowerCase().includes(units))
+                    .map(units => ({ name: units, value: units }))
+                    .slice(0, 25)
+            ).catch(console.error);
+        }
     }
 }
 
 async function startNewLog() {
-    todaysTrains.clear();
-    publicSubmissions.clear();
-    currentLogMessage = await logChannel.send('*No trains have been logged yet today. Check back here later!*');
+    todaysLog = {};
+    clarifyingSubmissions.clear();
+    submissionsForApproval.clear();
+    executedHistory.clear();
+    currentLogMessage = await logChannel.send('*No allocations have been logged yet today. Check back here later!*');
     console.log(`Started new log for ${new Date().toISOString().split('T')[0]}`);
     logTransaction('📝 New log started');
 }
@@ -663,8 +771,8 @@ client.once('ready', async () => {
 
     const commands = await client.application.commands.set([
         {
-            name: 'log-train',
-            description: 'Log a train entry for the day.',
+            name: 'log-allocation',
+            description: "Log one of today's allocations.",
             options: [
                 {
                     name: 'trn',
@@ -675,28 +783,62 @@ client.once('ready', async () => {
                     autocomplete: true
                 },
                 {
-                    name: 'description',
+                    name: 'units',
                     type: 3, // string
-                    description: 'A description of the train (e.g., "4073+4081")',
+                    description: 'The units allocated (e.g., "4073+4081")',
                     required: true,
+                    maxLength: 64,
+                    autocomplete: true
+                },
+                {
+                    name: 'sources',
+                    type: 3, // string
+                    description: "Don't specify if it's just you! Defaults to you",
                     maxLength: 128
                 },
                 {
-                    name: 'source',
+                    name: 'notes',
                     type: 3, // string
-                    description: "Don't specify if it's just you! Source of the information (defaults to you)",
-                    maxLength: 128
+                    description: 'Any notes about the allocation (e.g., testing, driver training, withdrawals...)',
+                    maxLength: 64
+                },
+                {
+                    name: 'index',
+                    type: 4, // integer
+                    description: 'ADVANCED - Used for ordering when multiple allocations exist for the same TRN',
                 }
             ]
         },
         {
-            name: 'remove-train',
-            description: "Remove a train entry from today's log.",
+            name: 'remove-allocation',
+            description: "Remove an allocation from today's log.",
             options: [
                 {
                     name: 'trn',
                     type: 3, // string
-                    description: 'The TRN of the train to remove',
+                    description: 'The TRN of the allocation to remove',
+                    required: true,
+                    maxLength: 32,
+                    autocomplete: true
+                },
+                {
+                    name: 'units',
+                    type: 3, // string
+                    description: 'The units of the allocation to remove',
+                    required: true,
+                    maxLength: 64,
+                    autocomplete: true
+                }
+            ]
+        },
+        {
+            name: 'search-trn',
+            description: 'Get the currently logged allocations for a given TRN.',
+            options: [
+                {
+                    name: 'trn',
+                    type: 3, // string
+                    description: 'The TRN of the allocations to look up (e.g., "T101")',
                     required: true,
                     maxLength: 32,
                     autocomplete: true
@@ -704,27 +846,13 @@ client.once('ready', async () => {
             ]
         },
         {
-            name: 'logged-trn',
-            description: 'Get the currently logged information for a given TRN.',
-            options: [
-                {
-                    name: 'trn',
-                    type: 3, // string
-                    description: 'The TRN of the train to look up (e.g., "T101")',
-                    required: true,
-                    maxLength: 32,
-                    autocomplete: true
-                }
-            ]
-        },
-        {
-            name: 'search-logged-trains',
-            description: "Search through the descriptions of all of today's trains.",
+            name: 'search-unit',
+            description: "Get all logged allocations containing the given unit.",
             options: [
                 {
                     name: 'query',
                     type: 3, // string
-                    description: 'Text to search for in train descriptions',
+                    description: 'A unit or part of a unit to search for (e.g., "4073")',
                     required: true,
                     maxLength: 16
                 }
@@ -735,7 +863,7 @@ client.once('ready', async () => {
             description: 'Sends a message explaining basic usage of the bot.'
         }
     ]);
-    logTrainCommandId = commands.find(cmd => cmd.name === 'log-train').id;
+    logAllocationCommandId = commands.find(cmd => cmd.name === 'log-allocation').id;
 
     await startNewLog();
     const now = new Date();

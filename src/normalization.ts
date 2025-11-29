@@ -56,8 +56,8 @@ function addEmojis(unitEmoji: string) {
     return (unit: string) => unit.includes('x') ? `:question:<${unitEmoji}> ${unit}` : `<${unitEmoji}> ${unit}`;
 }
 
-export function normalizeDescription(description: string) {
-    return description
+export function normalizeUnits(units: string) {
+    return units
         // Normalize 555 units
         .replace(CLASS_555_FORMATTING_REGEX, (_, __, unit) => `555${unit}`)
         // Normalize formatting of individual metrocar units
