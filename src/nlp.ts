@@ -129,7 +129,7 @@ async function runPrompt(
             }),
             system: systemPrompt,
             prompt: [
-                `Wiki Unit Statuses: ${unitStatuses?.length ? JSON.stringify(unitStatuses) : 'Unavailable'}`,
+                `Wiki Unit Statuses: ${Object.keys(unitStatuses || {}).length ? JSON.stringify(unitStatuses) : 'Unavailable'}`,
                 `Existing Logs: ${JSON.stringify(formattedLog)}`,
                 `Prompt given by user <@${userToCredit.id}>: ${prompt}`,
             ].join('\n'),
