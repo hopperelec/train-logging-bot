@@ -69,7 +69,8 @@ async function runPrompt(
                 type: "accept";
                 transactions: (LogRemoveTransaction | (
                     { type: "add" } & NlpLogEntry
-                ))[]
+                ))[];
+                notes?: string;
             } | {
                 type: "reject";
                 detail: string;
@@ -111,7 +112,8 @@ async function runPrompt(
                                     ]
                                 },
                                 minItems: 1
-                            }
+                            },
+                            notes: {type: "string"}
                         },
                         required: ["type", "transactions"],
                         additionalProperties: false
@@ -154,8 +156,15 @@ async function runPrompt(
                                 trn, units, details
                             }
                         });
+                        const lines = [
+                            "**Do these changes look correct?**",
+                            listTransactions(transactions, currentLog)
+                        ];
+                        if (response.object.notes) {
+                            lines.push(`**Notes by AI:** ${response.object.notes}`);
+                        }
                         await interaction.editReply({
-                            content: `Do these changes look correct?\n${listTransactions(transactions, currentLog)}`,
+                            content: lines.join('\n'),
                             components: [
                                 new ActionRowBuilder<ButtonBuilder>()
                                     .addComponents(
