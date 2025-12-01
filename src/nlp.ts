@@ -131,7 +131,8 @@ async function runPrompt(
             prompt: [
                 `Wiki Unit Statuses: ${Object.keys(unitStatuses || {}).length ? JSON.stringify(unitStatuses) : 'Unavailable'}`,
                 `Existing Logs: ${JSON.stringify(formattedLog)}`,
-                `Prompt given by user <@${userToCredit.id}>: ${prompt}`,
+                `Prompt given by user <@${userToCredit.id}>:`,
+                prompt
             ].join('\n'),
             temperature: 0,
         });
@@ -139,7 +140,9 @@ async function runPrompt(
 
         switch (response.finishReason) {
             case 'stop':
-            case 'unknown': // hope for the best!
+            // hope for the best in miscellaneous cases
+            case 'other':
+            case 'unknown':
                 switch (response.object.type) {
                     case 'accept':
                         const transactions: LogTransaction[] = response.object.transactions.map(transaction => {
@@ -184,10 +187,6 @@ async function runPrompt(
             case 'error':
                 console.warn('Error during AI response generation');
                 await interaction.editReply('Sorry, but there was an error while the AI was generating a response.').catch(console.error);
-                return;
-            case 'other':
-                console.warn('AI response generation stopped for an unknown reason');
-                await interaction.editReply('Sorry, but the AI stopped generating a response for an unknown reason.').catch(console.error);
                 return;
         }
     } catch (error) {
