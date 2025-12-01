@@ -4,9 +4,9 @@ import {TRN} from "./types";
 
 // --- TRN ---
 
-const THREE_DIGIT_REGEX = new RegExp(/^\d{3}$/);
+const THREE_DIGIT_REGEX = new RegExp(/^t?\d{3}$/);
 export function normalizeTRN(trn: TRN): TRN {
-    return THREE_DIGIT_REGEX.test(trn) ? `T${trn}` : trn;
+    return THREE_DIGIT_REGEX.test(trn) ? `T${trn.slice(-3)}` : trn;
 }
 
 // --- Description ---
