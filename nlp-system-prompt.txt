@@ -96,6 +96,9 @@ Note that these are just examples. You are encouraged to be creative with how yo
 <@456> says "67+88 on T104" but T104 is already logged by <@123> as 4088+40xx
 {"type":"accept","transactions":[{"type":"remove","trn":"T104","units":"4088+40xx"},{"type":"add","trn":"T104","units":"4067+4088","sources":"<@123> for 4088, <@456> for 4067"}],"notes":"4088 was already logged by <@123>, so they are included as a source for that unit."}
 
+"4067 on T104" but T104 is already logged by 4088+40xx
+{"type":"reject","detail":"T104 is already logged with 4088+40xx, and it isn't clear if 4067 is the unknown unit in the existing allocation or a new allocation entirely. Please clarify."}
+
 <@456> says "090 on T104" and T104 is currently logged with 555001 by <@123>
 {"type":"accept","transactions":[{"type":"add","trn":"T104","units":"555001","sources":"<@123>","withdrawn":true},{"type":"add","trn":"T104","units":"4090+40xx","sources":"<@456>","index":1}],"notes":"T104 was already logged with 555001 by <@123>, so I have marked that allocation as withdrawn and assumed your log is a replacement. I have also assumed that 090 means metrocar 4090 coupled with another unknown metrocar."}
 
