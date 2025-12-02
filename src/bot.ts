@@ -657,10 +657,14 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 }
 
 async function handleAutocompleteInteraction(interaction: AutocompleteInteraction) {
+    function emptyResponse() {
+        interaction.respond([]).catch(console.error);
+    }
+
     const focused = interaction.options.getFocused(true);
     if (focused.name === 'trn') {
         const trn = (focused.value as string).toLowerCase();
-        await interaction.respond(
+        interaction.respond(
             Object.keys(todaysLog)
                 .filter(key => key.toLowerCase().includes(trn))
                 .map(key => ({ name: key, value: key }))
@@ -668,24 +672,42 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
         ).catch(console.error);
     } else if (focused.name === 'units') {
         let trn = interaction.options.get('trn')?.value as string;
-        if (trn) {
-            trn = normalizeTRN(trn);
-            const units = (focused.value as string).toLowerCase();
-            const existingUnits = todaysLog[trn]
-            const otherLoggedUnits = Object.entries(todaysLog)
-                .filter(([key]) => key !== trn)
-                .flatMap(([,allocations]) => Object.keys(allocations));
-            const suggestions = [
-                ...(existingUnits ? Object.keys(existingUnits) : []),
-                ...otherLoggedUnits
-            ];
-            await interaction.respond(
-                suggestions
-                    .filter(key => key.toLowerCase().includes(units))
-                    .map(units => ({ name: units, value: units }))
-                    .slice(0, 25)
-            ).catch(console.error);
+        if (!trn) {
+            emptyResponse();
+            return;
         }
+        trn = normalizeTRN(trn);
+        const units = (focused.value as string).toLowerCase();
+        const existingUnits = todaysLog[trn]
+        const otherLoggedUnits = Object.entries(todaysLog)
+            .filter(([key]) => key !== trn)
+            .flatMap(([,allocations]) => Object.keys(allocations));
+        const suggestions = [
+            ...(existingUnits ? Object.keys(existingUnits) : []),
+            ...otherLoggedUnits
+        ];
+        interaction.respond(
+            suggestions
+                .filter(key => key.toLowerCase().includes(units))
+                .map(units => ({ name: units, value: units }))
+                .slice(0, 25)
+        ).catch(console.error);
+    } else {
+        let trn = interaction.options.get('trn')?.value as string;
+        const units = interaction.options.get('units')?.value as string;
+        if (!trn || !units) {
+            emptyResponse();
+            return;
+        }
+        trn = normalizeTRN(trn);
+        const existingValue: string | number = todaysLog[trn]?.[units]?.[focused.name];
+        if (existingValue === undefined) {
+            emptyResponse();
+            return;
+        }
+        interaction.respond([
+            { name: existingValue.toString(), value: existingValue.toString() }
+        ]).catch(console.error);
     }
 }
 
@@ -764,13 +786,15 @@ client.once('ready', async () => {
                     name: 'sources',
                     type: 3, // string
                     description: "Don't specify if it's just you! Defaults to you",
-                    maxLength: 128
+                    maxLength: 128,
+                    autocomplete: true
                 },
                 {
                     name: 'notes',
                     type: 3, // string
                     description: 'Any notes about the allocation (e.g., testing, driver training, withdrawals...)',
-                    maxLength: 64
+                    maxLength: 64,
+                    autocomplete: true
                 },
                 {
                     name: 'withdrawn',
@@ -781,6 +805,7 @@ client.once('ready', async () => {
                     name: 'index',
                     type: 4, // integer
                     description: 'ADVANCED - Used for ordering when multiple allocations exist for the same TRN',
+                    autocomplete: true
                 }
             ]
         },
