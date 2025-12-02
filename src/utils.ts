@@ -16,7 +16,7 @@ export function dailyLogToString(dailyLog: DailyLog) {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([trn, allocations]) => {
             const sortedAllocations = Object.entries(allocations)
-                .sort(([,a], [,b]) => (a.index || 0) - (b.index || 0));
+                .sort(([,a], [,b]) => (a.index ?? 0) - (b.index ?? 0));
             const descriptions = sortedAllocations.map(([units, details]) => {
                 units = normalizeUnits(units);
                 if (details.withdrawn) units = `~~${units}~~`;
@@ -26,7 +26,23 @@ export function dailyLogToString(dailyLog: DailyLog) {
             const sources = sortedAllocations.map(
                 ([, details]) => details.sources
             );
-            return `${trn} - ${descriptions.join('; ')}\n-# ${sources.join('; ')}`;
+
+            let descriptionStr = descriptions.join('; ');
+            if (sortedAllocations.length > 1) {
+                const indices = sortedAllocations.map(([, details]) => details.index ?? 0);
+                if (new Set(indices).size === sortedAllocations.length) { // All indices are unique
+                    const nonWithdrawnIndex = sortedAllocations.findIndex(([, details]) => !details.withdrawn);
+                    if (nonWithdrawnIndex === -1) { // All allocations are withdrawn
+                        // Each allocation is a replacement for the last
+                        descriptionStr = descriptions.join(' then ');
+                    } else if (nonWithdrawnIndex === sortedAllocations.length - 1) { // All but the last are withdrawn
+                        // Each allocation is a replacement for the last, and the last is not withdrawn
+                        descriptionStr = `${descriptions.slice(0, -1).join(' then ')} now ${descriptions[descriptions.length - 1]}`;
+                    }
+                }
+            }
+
+            return `${trn} - ${descriptionStr}\n-# ${sources.join('; ')}`;
         })
         .join('\n');
 }
