@@ -142,20 +142,64 @@ async function runPrompt(
 
         switch (response.finishReason) {
             case 'stop':
-            // hope for the best in miscellaneous cases
-            case 'other':
-            case 'unknown':
+            default: // still try parsing in miscellaneous cases; the try/catch will handle errors
+                // Somehow, the AI is capable of bypassing the schema, so we have to do extra checks
+                if (!('type' in response.object)) {
+                    console.warn('AI response missing type field:', response.object);
+                    await interaction.editReply('Sorry, but the AI generated an invalid response.').catch(console.error);
+                    return;
+                }
                 switch (response.object.type) {
                     case 'accept':
-                        const transactions: LogTransaction[] = response.object.transactions.map(transaction => {
-                            if (transaction.type === 'remove') return transaction;
-                            // Move details into 'details' object
-                            const {trn, units, ...details} = transaction;
-                            return {
-                                type: 'add',
-                                trn, units, details
+                        if (!response.object.transactions) {
+                            console.warn("AI accepted but didn't include the transactions field");
+                            let message = 'The AI accepted your query but did not provide any changes to make.';
+                            if (response.object.notes) {
+                                message += `\n**Notes by AI:** ${response.object.notes}`;
                             }
-                        });
+                            await interaction.editReply(message);
+                            return;
+                        }
+
+                        const transactions: LogTransaction[] = [];
+                        for (const transaction of response.object.transactions) {
+                            if (!(
+                                'type' in transaction &&
+                                typeof transaction.trn === 'string' &&
+                                typeof transaction.units === 'string'
+                            )) {
+                                console.warn('AI provided malformed transaction:', transaction);
+                                continue;
+                            }
+                            if (transaction.type === 'remove') {
+                                transactions.push(transaction);
+                                continue;
+                            }
+                            // Move details into 'details' object
+                            const {type, trn, units, ...details} = transaction;
+                            if (!(
+                                type === 'add' &&
+                                typeof details.sources === 'string' &&
+                                (details.notes === undefined || typeof details.notes === 'string') &&
+                                (details.index === undefined || typeof details.index === 'number') &&
+                                (details.withdrawn === undefined || typeof details.withdrawn === 'boolean')
+                            )) {
+                                console.warn('AI provided malformed transaction:', transaction);
+                                continue;
+                            }
+                            transactions.push({type, trn, units, details});
+                        }
+                        if (transactions.length === 0) {
+                            console.warn('AI accepted but provided no valid transactions');
+                            let message = 'The AI accepted your query but did not provide any valid changes to make.';
+                            if (response.object.notes) {
+                                message += `\n**Notes by AI:** ${response.object.notes}`;
+                            }
+                            await interaction.editReply(message).catch(console.error);
+                            return;
+                        }
+
+                        // The transactions are valid; show confirmation prompt
                         const lines = [
                             "**Do these changes look correct?**",
                             listTransactions(transactions, currentLog)
@@ -177,14 +221,15 @@ async function runPrompt(
                         }).catch(console.error);
                         return;
                     case 'reject':
-                        await interaction.editReply(response.object.detail).catch(console.error);
+                        if (response.object.detail) {
+                            await interaction.editReply(response.object.detail).catch(console.error);
+                        } else {
+                            console.warn('AI rejected but provided no detail');
+                            await interaction.editReply('Sorry, the AI rejected your query but did not provide a reason.').catch(console.error);
+                        }
                         return;
                 }
             // fallthrough (shouldn't happen)
-            case 'length':
-                console.warn('AI response too long');
-                await interaction.editReply('Sorry, but the response generated by the AI was too long.').catch(console.error);
-                return;
             case 'content-filter':
                 console.warn('AI response rejected by content filter');
                 await interaction.editReply('Sorry, but the AI refused to process your request due to content restrictions.').catch(console.error);
