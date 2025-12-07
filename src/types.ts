@@ -1,4 +1,13 @@
-import {Snowflake, User} from "discord.js";
+import {
+    Snowflake,
+    User,
+    TextInputStyle,
+    APITextDisplayComponent,
+    APITextInputComponent,
+    APIStringSelectComponent,
+    APISelectMenuOption,
+    StringSelectMenuComponentData, SelectMenuComponentOptionData, TextInputComponentData, TextDisplayComponentData
+} from 'discord.js';
 
 // Core types
 
@@ -36,24 +45,6 @@ export interface LogRemoveTransaction extends LogEntryKey {
 
 export type LogTransaction = LogAddTransaction | LogRemoveTransaction;
 
-// NLP interactions
-
-interface BaseNlpInteraction {
-    prompt: string;
-}
-
-export interface RejectedNlpInteraction extends BaseNlpInteraction {
-    type: 'rejected';
-    rejectionReason: string;
-}
-
-export interface AcceptedNlpInteraction extends BaseNlpInteraction {
-    type: 'accepted';
-    transactions: LogTransaction[];
-}
-
-export type NlpInteraction = RejectedNlpInteraction | AcceptedNlpInteraction;
-
 // Submissions
 
 export interface Submission {
@@ -64,4 +55,47 @@ export interface Submission {
 export interface ExecutedSubmission extends Submission {
     submissionId: Snowflake;
     undoTransactions: LogTransaction[];
+}
+
+// NLP messages
+
+interface Message {
+    content: string;
+}
+
+interface UserMessage extends Message {
+    role: 'user';
+}
+
+interface AssistantMessage extends Message {
+    role: 'assistant';
+}
+
+type NLPMessage = UserMessage | AssistantMessage;
+
+export type NLPConversation = [NLPMessage & {role: 'user'}, ...NLPMessage[]];
+
+// NLP clarification modal
+
+interface JSONTextDisplay extends Omit<TextDisplayComponentData, 'type'> {
+    type: 'TextDisplay';
+}
+
+interface JSONTextInput extends Omit<TextInputComponentData, 'type' | 'id' | 'customId' | 'style'> {
+    type: 'TextInput';
+    id: string;
+    label: string; // Technically already exists in TextInputComponentData but is deprecated so may be removed in future versions
+    style: keyof typeof TextInputStyle;
+}
+
+interface JSONStringSelect extends Omit<StringSelectMenuComponentData, 'type' | 'id' | 'customId'> {
+    type: 'DropdownInput';
+    id: string;
+    label: string;
+    options: Omit<SelectMenuComponentOptionData, 'emoji'>[];
+}
+
+export interface JSONModal {
+    title: string;
+    components: (JSONTextDisplay | JSONTextInput | JSONStringSelect)[];
 }
