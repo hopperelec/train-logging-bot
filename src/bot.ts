@@ -1,7 +1,6 @@
 import {
     Client,
     GatewayIntentBits,
-    CommandInteraction,
     TextChannel,
     EmbedBuilder,
     ActionRowBuilder,
@@ -15,6 +14,7 @@ import {
     BaseMessageOptions,
     ThreadChannel,
     DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
+    ChatInputCommandInteraction,
 } from 'discord.js';
 import { config } from 'dotenv';
 import {normalizeTRN} from "./normalization";
@@ -25,7 +25,13 @@ import {
     Submission,
     TrnCategory
 } from "./types";
-import {aiLogCommand, aiLogContextMenu} from "./nlp";
+import {
+    aiLogCommand,
+    aiLogContextMenu,
+    cleanup as cleanupNLP,
+    handleClarificationFormSubmission,
+    openClarificationForm
+} from "./nlp";
 import {categorizeTRN, dailyLogToString, listTransactions} from "./utils";
 
 config();
@@ -430,7 +436,7 @@ function isContributor(user: User) {
     return !contributorGuild || contributorGuild.members.cache.get(user.id).roles.cache.some(role => role.id === CONTRIBUTOR_ROLE_ID);
 }
 
-async function handleCommandInteraction(interaction: CommandInteraction) {
+async function handleCommandInteraction(interaction: ChatInputCommandInteraction) {
     if (interaction.commandName === 'ai-log') {
         await aiLogCommand(todaysLog, interaction);
 
@@ -573,6 +579,12 @@ async function handleCommandInteraction(interaction: CommandInteraction) {
 }
 
 async function handleButtonInteraction(interaction: ButtonInteraction) {
+    if (interaction.customId.startsWith("clarify-open:")) {
+        const uuid = interaction.customId.split(':')[1];
+        await openClarificationForm(uuid, interaction);
+        return;
+    }
+
     if (interaction.customId.startsWith("confirm-update:")) {
         const uuid = interaction.customId.split(':')[1];
         const submission = unconfirmedSubmissions.get(uuid);
@@ -715,12 +727,13 @@ async function startNewLog() {
     todaysLog = {};
     submissionsForApproval.clear();
     executedHistory.clear();
+    cleanupNLP();
     currentLogMessage = await logChannel.send('*No allocations have been logged yet today. Check back here later!*');
     console.log(`Started new log for ${new Date().toISOString().split('T')[0]}`);
     logTransaction('📝 New log started');
 }
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     console.log(`Logged in as @${client.user.tag}!`);
 
     logChannel = client.channels.cache.get(LOG_CHANNEL_ID) as TextChannel;
@@ -888,6 +901,11 @@ client.on('interactionCreate', async (interaction) => {
     } else if (interaction.isMessageContextMenuCommand()) {
         if (interaction.commandName === 'Log with AI') {
             await aiLogContextMenu(todaysLog, interaction);
+        }
+    } else if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith('clarify:')) {
+            const uuid = interaction.customId.split(':')[1];
+            await handleClarificationFormSubmission(uuid, interaction, todaysLog);
         }
     }
 });
