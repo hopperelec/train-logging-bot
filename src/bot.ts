@@ -29,8 +29,8 @@ import {
     aiLogCommand,
     aiLogContextMenu,
     cleanup as cleanupNLP,
-    handleClarificationFormSubmission,
-    openClarificationForm
+    clarificationFormSubmission, nlpCorrectionFormSubmission,
+    openClarificationForm, openNlpCorrectionForm
 } from "./nlp";
 import {categorizeTRN, dailyLogToString, listTransactions} from "./utils";
 
@@ -91,22 +91,16 @@ let contributorGuild: Guild;
 let logAllocationCommandId: string;
 let currentLogMessage: Message | Record<TrnCategory, Message>;
 let todaysLog: DailyLog = {};
-const submissionsForApproval = new Map<Snowflake, Submission>();
 const unconfirmedSubmissions = new Map<Snowflake, Submission>();
+const submissionsForApproval = new Map<Snowflake, Submission>();
 const executedHistory = new Map<Snowflake, ExecutedSubmission>();
 
 function logTransaction(message: string | BaseMessageOptions) {
     if (transactionChannel) sendMessageWithoutPinging(message, transactionChannel).then();
 }
 
-export function addUnconfirmedEntry(submission: Submission): ButtonBuilder {
-    const uuid = crypto.randomUUID();
-    unconfirmedSubmissions.set(uuid, submission);
-    return new ButtonBuilder()
-        .setCustomId(`confirm-update:${uuid}`)
-        .setLabel('Update')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('✏️');
+export function addUnconfirmedSubmission(id: Snowflake, submission: Submission) {
+    unconfirmedSubmissions.set(id, submission);
 }
 
 function replacePingsWithNames(text: string) {
@@ -473,6 +467,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             }
 
             console.log(`User @${interaction.user.tag} attempted to log an existing allocation with different details. Awaiting confirmation to update.`);
+            addUnconfirmedSubmission(interaction.id, submission);
             await interaction.reply({
                 content: `⚠️ This allocation has already been logged but with different details. Do you want to update the existing entry?`,
                 embeds: [
@@ -488,7 +483,13 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
                 ],
                 components: [
                     new ActionRowBuilder<ButtonBuilder>()
-                        .addComponents(addUnconfirmedEntry(submission))
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`confirm-update:${interaction.id}`)
+                                .setLabel('Update')
+                                .setStyle(ButtonStyle.Primary)
+                                .setEmoji('✏️')
+                        )
                 ],
                 flags: ["Ephemeral"],
             });
@@ -579,35 +580,44 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
 }
 
 async function handleButtonInteraction(interaction: ButtonInteraction) {
-    if (interaction.customId.startsWith("clarify-open:")) {
-        const uuid = interaction.customId.split(':')[1];
-        await openClarificationForm(uuid, interaction);
-        return;
-    }
-
-    if (interaction.customId.startsWith("confirm-update:")) {
-        const uuid = interaction.customId.split(':')[1];
-        const submission = unconfirmedSubmissions.get(uuid);
-        if (submission) {
-            const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
-            const result = await submitSubmission(submission);
-            await deferUpdatePromise;
-            interaction.editReply({
-                content: result,
-                embeds: [],
-                components: []
-            }).catch(console.error);
-            unconfirmedSubmissions.delete(uuid);
-        } else {
-            interaction.reply({
-                content: '❌ Your submission has expired. Please try again.',
-                flags: ["Ephemeral"]
-            }).catch(console.error);
+    const [action, uuid] = interaction.customId.split(':');
+    if (uuid) {
+        if (action === 'clarify-open') {
+            await openClarificationForm(uuid, interaction);
+            return;
         }
+
+        if (action === 'nlp-correction') {
+            await openNlpCorrectionForm(uuid, interaction);
+            return;
+        }
+
+        if (action === 'confirm-update') {
+            const submission = unconfirmedSubmissions.get(uuid);
+            if (submission) {
+                const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
+                const result = await submitSubmission(submission);
+                await deferUpdatePromise;
+                interaction.editReply({
+                    content: result,
+                    embeds: [],
+                    components: []
+                }).catch(console.error);
+                unconfirmedSubmissions.delete(uuid);
+            } else {
+                interaction.reply({
+                    content: '❌ Your submission has expired. Please try again.',
+                    flags: ["Ephemeral"]
+                }).catch(console.error);
+            }
+            return;
+        }
+
+        console.warn(`Unknown button interaction with UUID: ${interaction.customId}`);
         return;
     }
 
-    if (interaction.customId === 'undo') {
+    if (action === 'undo') {
         if (!isContributor(interaction.user)) {
             interaction.reply({ content: '❌ Only contributors can undo actions.', flags: ["Ephemeral"] }).catch(console.error);
             return;
@@ -640,32 +650,37 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         return;
     }
 
-    const submission = submissionsForApproval.get(interaction.message.id);
-    if (!submission) {
-        interaction.reply({
-            content: '❌ This submissions no longer exists.',
-            flags: ["Ephemeral"]
-        }).catch(console.error);
+    if (action === 'approve' || action === 'deny') {
+        const submission = submissionsForApproval.get(interaction.message.id);
+        if (!submission) {
+            interaction.reply({
+                content: '❌ This submissions no longer exists.',
+                flags: ["Ephemeral"]
+            }).catch(console.error);
+            return;
+        }
+
+        if (!isContributor(interaction.user)) {
+            interaction.reply({
+                content: '❌ You do not have permission to manage submissions.',
+                flags: ["Ephemeral"]
+            }).catch(console.error);
+            return;
+        }
+
+        if (action === 'approve') {
+            const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
+            const result = await approveSubmission(interaction, submission);
+            await deferUpdatePromise;
+            interaction.editReply(result).catch(console.error);
+        } else if (action === 'deny') {
+            // Denying doesn't affect the log, so no need to defer the update
+            await interaction.update(await denySubmission(interaction, submission));
+        }
         return;
     }
 
-    if (!isContributor(interaction.user)) {
-        interaction.reply({
-            content: '❌ You do not have permission to manage submissions.',
-            flags: ["Ephemeral"]
-        }).catch(console.error);
-        return;
-    }
-
-    if (interaction.customId === 'approve') {
-        const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
-        const result = await approveSubmission(interaction, submission);
-        await deferUpdatePromise;
-        interaction.editReply(result).catch(console.error);
-    } else if (interaction.customId === 'deny') {
-        // Denying doesn't affect the log, so no need to defer the update
-        await interaction.update(await denySubmission(interaction, submission));
-    }
+    console.warn(`Unknown button interaction: ${interaction.customId}`);
 }
 
 async function handleAutocompleteInteraction(interaction: AutocompleteInteraction) {
@@ -903,9 +918,19 @@ client.on('interactionCreate', async (interaction) => {
             await aiLogContextMenu(todaysLog, interaction);
         }
     } else if (interaction.isModalSubmit()) {
-        if (interaction.customId.startsWith('clarify:')) {
-            const uuid = interaction.customId.split(':')[1];
-            await handleClarificationFormSubmission(uuid, interaction, todaysLog);
+        const [action,uuid] = interaction.customId.split(':');
+        if (action === 'clarify') {
+            await clarificationFormSubmission(uuid, interaction, todaysLog);
+        } else if (action === 'correction') {
+            const submission = unconfirmedSubmissions.get(uuid);
+            if (!('messages' in submission)) {
+                interaction.reply({
+                    content: '❌ Sorry, this submission is no longer available.',
+                    flags: ["Ephemeral"]
+                }).catch(console.error);
+                return;
+            }
+            await nlpCorrectionFormSubmission(interaction, todaysLog, submission);
         }
     }
 });
