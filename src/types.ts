@@ -2,10 +2,6 @@ import {
     Snowflake,
     User,
     TextInputStyle,
-    APITextDisplayComponent,
-    APITextInputComponent,
-    APIStringSelectComponent,
-    APISelectMenuOption,
     StringSelectMenuComponentData, SelectMenuComponentOptionData, TextInputComponentData, TextDisplayComponentData
 } from 'discord.js';
 
@@ -47,12 +43,18 @@ export type LogTransaction = LogAddTransaction | LogRemoveTransaction;
 
 // Submissions
 
-export interface Submission {
+interface ManualSubmission {
     user: User;
     transactions: LogTransaction[];
 }
 
-export interface ExecutedSubmission extends Submission {
+export interface NlpSubmission extends ManualSubmission {
+    messages: NLPConversation;
+}
+
+export type Submission = ManualSubmission | NlpSubmission;
+
+export interface ExecutedSubmission extends ManualSubmission {
     submissionId: Snowflake;
     undoTransactions: LogTransaction[];
 }

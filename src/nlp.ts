@@ -16,10 +16,10 @@ import {
     LogEntryDetails,
     LogEntryKey,
     LogRemoveTransaction,
-    LogTransaction, NLPConversation,
+    LogTransaction, NLPConversation, NlpSubmission,
 } from "./types";
-import {addUnconfirmedEntry} from "./bot";
-import {listTransactions} from "./utils";
+import {addUnconfirmedSubmission} from "./bot";
+import {getIdLoggers, listTransactions} from "./utils";
 
 config();
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
@@ -29,7 +29,7 @@ const WIKI_QUERY = "[[Has unit identifier::+]]|?Has unit identifier|?Has unit st
 let google: GoogleGenerativeAIProvider;
 let systemPrompt: string;
 let unitStatuses: Record<string, string>;
-let clarificationForms = new Map<Snowflake, {
+const clarificationForms = new Map<Snowflake, {
     messages: NLPConversation;
 } & JSONModal>();
 
@@ -62,31 +62,14 @@ function loadWikiData() {
 async function runPrompt(
     interaction: CommandInteraction | ModalSubmitInteraction,
     messages: NLPConversation,
-    userToCredit: User,
-    currentLog: DailyLog
+    currentLog: DailyLog, // for context in confirmations
 ): Promise<void> {
     if (!google) throw new Error('Google Generative AI is not configured.');
 
-    const formattedLog: NlpLogEntry[] = [];
-    for (const [trn, unitsMap] of Object.entries(currentLog)) {
-        for (const [units, details] of Object.entries(unitsMap)) {
-            formattedLog.push({
-                trn,
-                units,
-                ...details
-            });
-        }
-    }
+    const {logWithId, warnWithId, errorWithId} = getIdLoggers(interaction.id);
+    logWithId('Running AI prompt', messages);
 
-    messages[0].content = [
-        `Wiki Unit Statuses: ${Object.keys(unitStatuses || {}).length ? JSON.stringify(unitStatuses) : 'Unavailable'}`,
-        `Existing Logs: ${JSON.stringify(formattedLog)}`,
-        `Prompting user: <@${userToCredit.id}>`,
-        'Everything after this line is the user prompt:',
-        messages[0].content
-    ].join('\n');
-
-    const deferReplyPromise = interaction.deferReply({flags: ['Ephemeral']}).catch(console.error);
+    const deferReplyPromise = interaction.deferReply({flags: ['Ephemeral']}).catch(errorWithId);
     try {
         const response = await generateObject({
             model: google('gemini-2.5-flash'),
@@ -296,19 +279,22 @@ async function runPrompt(
         });
         await deferReplyPromise;
 
+        messages.push({role: 'assistant', content: JSON.stringify(response.object)});
         switch (response.finishReason) {
             case 'stop':
             default: // still try parsing in miscellaneous cases; the try/catch will handle errors
+                logWithId('AI response received', response.object);
+
                 // Somehow, the AI is capable of bypassing the schema, so we have to do extra checks
                 if (!response.object.type) {
-                    console.warn('AI response missing type field:', JSON.stringify(response.object));
-                    await interaction.editReply('Sorry, but the AI generated an invalid response.').catch(console.error);
+                    warnWithId('AI response missing type field');
+                    await interaction.editReply('Sorry, but the AI generated an invalid response.').catch(errorWithId);
                     return;
                 }
                 switch (response.object.type) {
                     case 'accept':
                         if (!Array.isArray(response.object.transactions)) {
-                            console.warn("AI accepted but didn't include the transactions field:", JSON.stringify(response.object));
+                            warnWithId("AI accepted but didn't include the transactions field:");
                             let message = 'The AI accepted your query but did not provide any changes to make.';
                             if (response.object.notes) {
                                 message += `\n**Notes by AI:** ${response.object.notes}`;
@@ -324,7 +310,7 @@ async function runPrompt(
                                 typeof transaction.trn === 'string' &&
                                 typeof transaction.units === 'string'
                             )) {
-                                console.warn('AI provided malformed transaction:', JSON.stringify(transaction));
+                                warnWithId('AI provided malformed transaction', transaction);
                                 continue;
                             }
                             if (transaction.type === 'remove') {
@@ -340,18 +326,18 @@ async function runPrompt(
                                 (details.index === undefined || typeof details.index === 'number') &&
                                 (details.withdrawn === undefined || typeof details.withdrawn === 'boolean')
                             )) {
-                                console.warn('AI provided malformed transaction:', JSON.stringify(transaction));
+                                warnWithId('AI provided malformed transaction', transaction);
                                 continue;
                             }
                             transactions.push({type, trn, units, details});
                         }
                         if (transactions.length === 0) {
-                            console.warn('AI accepted but provided no valid transactions:', JSON.stringify(response.object));
+                            warnWithId('AI accepted but provided no valid transactions');
                             let message = 'The AI accepted your query but did not provide any valid changes to make.';
                             if (response.object.notes) {
                                 message += `\n**Notes by AI:** ${response.object.notes}`;
                             }
-                            await interaction.editReply(message).catch(console.error);
+                            await interaction.editReply(message).catch(errorWithId);
                             return;
                         }
 
@@ -363,18 +349,29 @@ async function runPrompt(
                         if (response.object.notes) {
                             lines.push(`**Notes by AI:** ${response.object.notes}`);
                         }
+                        addUnconfirmedSubmission(interaction.id, {
+                            user: interaction.user,
+                            transactions,
+                            messages,
+                        });
                         await interaction.editReply({
                             content: lines.join('\n'),
                             components: [
                                 new ActionRowBuilder<ButtonBuilder>()
                                     .addComponents(
-                                        addUnconfirmedEntry({
-                                            user: interaction.user,
-                                            transactions,
-                                        })
+                                        new ButtonBuilder()
+                                            .setCustomId(`confirm-update:${interaction.id}`)
+                                            .setLabel('Confirm')
+                                            .setStyle(ButtonStyle.Primary)
+                                            .setEmoji('✅'),
+                                        new ButtonBuilder()
+                                            .setCustomId(`nlp-correction:${interaction.id}`)
+                                            .setLabel('Make correction')
+                                            .setStyle(ButtonStyle.Secondary)
+                                            .setEmoji('✏️')
                                     ),
                             ],
-                        }).catch(console.error);
+                        }).catch(errorWithId);
                         return;
 
                     case 'clarify':
@@ -406,16 +403,12 @@ async function runPrompt(
                                 )
                             )
                         )) {
-                            console.warn("AI requested clarification but didn't include a valid form:", JSON.stringify(response.object));
-                            await interaction.editReply('Sorry, the AI requested clarification but did not provide a valid form for you to complete.').catch(console.error);
+                            warnWithId("AI requested clarification but didn't include a valid form:", response.object);
+                            await interaction.editReply('Sorry, the AI requested clarification but did not provide a valid form for you to complete.').catch(errorWithId);
                             return;
                         }
-                        const uuid = crypto.randomUUID();
-                        clarificationForms.set(uuid, {
-                            messages: [
-                                ...messages,
-                                {role: 'assistant', content: JSON.stringify(response.object)}
-                            ],
+                        clarificationForms.set(interaction.id, {
+                            messages,
                             title: response.object.title,
                             components: response.object.components
                         });
@@ -425,47 +418,70 @@ async function runPrompt(
                                 new ActionRowBuilder<ButtonBuilder>()
                                     .addComponents(
                                         new ButtonBuilder()
-                                            .setCustomId(`clarify-open:${uuid}`)
+                                            .setCustomId(`clarify-open:${interaction.id}`)
                                             .setLabel('Open Clarification Form')
                                             .setStyle(ButtonStyle.Primary)
                                             .setEmoji('📋')
                                     )
                             ]
-                        }).catch(console.error);
+                        }).catch(errorWithId);
                         return;
 
                     case 'reject':
                         if (response.object.detail) {
-                            await interaction.editReply(response.object.detail).catch(console.error);
+                            await interaction.editReply(response.object.detail).catch(errorWithId);
                         } else {
-                            console.warn('AI rejected but provided no detail');
-                            await interaction.editReply('Sorry, the AI rejected your query but did not provide a reason.').catch(console.error);
+                            warnWithId('AI rejected but provided no detail');
+                            await interaction.editReply('Sorry, the AI rejected your query but did not provide a reason.').catch(errorWithId);
                         }
                         return;
 
                     default:
-                        console.warn('AI response has unknown type:', JSON.stringify(response.object));
-                        await interaction.editReply('Sorry, but the AI generated an invalid response.').catch(console.error);
+                        warnWithId('AI response has unknown type');
+                        await interaction.editReply('Sorry, but the AI generated an invalid response.').catch(errorWithId);
                         return;
                 }
             // fallthrough (shouldn't happen)
             case 'content-filter':
-                console.warn('AI response rejected by content filter');
-                await interaction.editReply('Sorry, but the AI refused to process your request due to content restrictions.').catch(console.error);
+                warnWithId('AI response rejected by content filter');
+                await interaction.editReply('Sorry, but the AI refused to process your request due to content restrictions.').catch(errorWithId);
                 return;
             case 'tool-calls':
-                console.warn('AI response triggered tool calls unexpectedly');
-                await interaction.editReply('Sorry, but for some reason the AI triggered tool calls instead of generating a proper response.').catch(console.error);
+                warnWithId('AI response triggered tool calls unexpectedly');
+                await interaction.editReply('Sorry, but for some reason the AI triggered tool calls instead of generating a proper response.').catch(errorWithId);
                 return;
             case 'error':
-                console.warn('Error during AI response generation');
-                await interaction.editReply('Sorry, but there was an error while the AI was generating a response.').catch(console.error);
+                warnWithId('Error during AI response generation');
+                await interaction.editReply('Sorry, but there was an error while the AI was generating a response.').catch(errorWithId);
                 return;
         }
     } catch (error) {
-        console.error(error);
-        await interaction.editReply('Sorry, there was an error processing your request. Please try again later.').catch(console.error);
+        errorWithId('Exception during AI prompt processing', error);
+        await interaction.editReply('Sorry, there was an error processing your request. Please try again later.').catch(errorWithId);
     }
+}
+
+function formatInitialPrompt(prompt: string, user: User, currentLog: DailyLog): NLPConversation {
+    const formattedLog: NlpLogEntry[] = [];
+    for (const [trn, unitsMap] of Object.entries(currentLog)) {
+        for (const [units, details] of Object.entries(unitsMap)) {
+            formattedLog.push({
+                trn,
+                units,
+                ...details
+            });
+        }
+    }
+    return [{
+        role: 'user',
+        content: [
+            `Wiki Unit Statuses: ${Object.keys(unitStatuses || {}).length ? JSON.stringify(unitStatuses) : 'Unavailable'}`,
+            `Existing Logs: ${JSON.stringify(formattedLog)}`,
+            `Prompting user: <@${user.id}>`,
+            'Everything after this line is the user prompt:',
+            prompt
+        ].join('\n')
+    }];
 }
 
 export async function aiLogCommand(currentLog: DailyLog, interaction: ChatInputCommandInteraction): Promise<void> {
@@ -475,9 +491,8 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: ChatInputC
     }
 
     const prompt = interaction.options.get('prompt', true).value as string;
-    console.log(`/ai-log invoked by @${interaction.user.tag}: ${prompt}`);
-    const messages: NLPConversation = [{role: 'user', content: prompt}];
-    await runPrompt(interaction, messages, interaction.user, currentLog);
+    console.log(`/ai-log invoked by @${interaction.user.tag}`);
+    await runPrompt(interaction, formatInitialPrompt(prompt, interaction.user, currentLog), currentLog);
 }
 
 export async function aiLogContextMenu(currentLog: DailyLog, interaction: MessageContextMenuCommandInteraction) {
@@ -487,18 +502,19 @@ export async function aiLogContextMenu(currentLog: DailyLog, interaction: Messag
     }
 
     const prompt = interaction.targetMessage.content;
-    console.log(`AI Log Context Menu invoked by @${interaction.user.tag} on message ID ${interaction.targetMessage.id}: ${prompt}`);
-    const messages: NLPConversation = [{role: 'user', content: prompt}];
-    await runPrompt(interaction, messages, interaction.user, currentLog);
+    console.log(`AI Log Context Menu invoked by @${interaction.user.tag} on message ${interaction.targetMessage.id}: ${prompt}`);
+    await runPrompt(interaction, formatInitialPrompt(prompt, interaction.user, currentLog), currentLog);
 }
 
 export async function openClarificationForm(uuid: string, interaction: ButtonInteraction) {
+    const {errorWithId} = getIdLoggers(uuid);
+
     const form = clarificationForms.get(uuid);
     if (!form) {
         await interaction.reply({
             content: 'Sorry, this clarification form has expired or is invalid.',
             flags: ['Ephemeral']
-        }).catch(console.error);
+        }).catch(errorWithId);
         return;
     }
 
@@ -548,33 +564,67 @@ export async function openClarificationForm(uuid: string, interaction: ButtonInt
             }
         })
     }).catch(async error => {
-        console.error('Error showing clarification modal', JSON.stringify({
-            uuid,
+        errorWithId('Error showing clarification modal', {
             form,
             error
-        }));
+        });
         await interaction.reply({
             content: 'Sorry, there was an error opening the clarification form.',
             flags: ['Ephemeral']
-        }).catch(console.error);
+        }).catch(errorWithId);
     });
 }
 
-export async function handleClarificationFormSubmission(uuid: string, interaction: ModalSubmitInteraction, currentLog: DailyLog) {
+export async function clarificationFormSubmission(uuid: string, interaction: ModalSubmitInteraction, currentLog: DailyLog) {
     const form = clarificationForms.get(uuid);
     if (!form) {
         await interaction.reply({
             content: 'Sorry, this clarification form has expired or is invalid.',
             flags: ['Ephemeral']
-        }).catch(console.error);
+        }).catch(getIdLoggers(uuid).errorWithId);
         return;
     }
     clarificationForms.delete(uuid);
-    form.messages.push({
-        role: 'user',
-        content: JSON.stringify(interaction.fields.fields),
-    });
-    await runPrompt(interaction, form.messages, interaction.user, currentLog);
+    await runPrompt(interaction, [
+        ...form.messages,
+        {
+            role: 'user',
+            content: JSON.stringify(interaction.fields.fields),
+        }
+    ], currentLog);
+}
+
+export async function openNlpCorrectionForm(uuid: string, interaction: ButtonInteraction) {
+    await interaction.showModal({
+        title: 'Correction to AI Submission',
+        customId: `correction:${uuid}`,
+        components: [
+            {
+                type: 18,
+                label: 'Describe the correction you want to make',
+                component: {
+                    type: 4,
+                    customId: 'correction',
+                    style: TextInputStyle.Paragraph,
+                } as TextInputComponentData
+            }
+        ]
+    }).catch(console.error);
+}
+
+export async function nlpCorrectionFormSubmission(
+    interaction: ModalSubmitInteraction,
+    currentLog: DailyLog,
+    originalSubmission: NlpSubmission
+) {
+    const messages: NLPConversation = [
+        ...originalSubmission.messages,
+        {
+            role: 'user',
+            content: interaction.fields.getTextInputValue('correction')
+        }
+    ];
+    await runPrompt(interaction, messages, currentLog);
 }
 
 export function cleanup() {

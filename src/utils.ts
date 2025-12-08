@@ -1,5 +1,17 @@
 import {DailyLog, LogEntry, LogTransaction, TRN, TrnCategory} from "./types";
 import {normalizeUnits} from "./normalization";
+import {Snowflake} from "discord.js";
+
+export function getIdLoggers(id: Snowflake) {
+    function runWithUUID(func: (...args: string[]) => void, message: string, obj?: any) {
+        func(`[${id}] ${message}`, obj ? JSON.stringify(obj) : undefined);
+    }
+    return {
+        logWithId: (message: string, obj?: any) => runWithUUID(console.log, message, obj),
+        warnWithId: (message: string, obj?: any) => runWithUUID(console.warn, message, obj),
+        errorWithId: (message: string, obj?: any) => runWithUUID(console.error, message, obj)
+    }
+}
 
 const TRN_REGEX = new RegExp(/^T?(\d{3})/);
 export function categorizeTRN(trn: TRN): TrnCategory {
