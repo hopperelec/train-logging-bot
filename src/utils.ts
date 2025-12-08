@@ -4,7 +4,9 @@ import {Snowflake} from "discord.js";
 
 export function getIdLoggers(id: Snowflake) {
     function runWithUUID(func: (...args: string[]) => void, message: string, obj?: any) {
-        func(`[${id}] ${message}`, obj ? JSON.stringify(obj) : undefined);
+        return obj === undefined
+            ? func(`[${id}] ${message}`)
+            : func(`[${id}] ${message}`, JSON.stringify(obj));
     }
     return {
         logWithId: (message: string, obj?: any) => runWithUUID(console.log, message, obj),
