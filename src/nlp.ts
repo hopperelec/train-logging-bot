@@ -1,5 +1,8 @@
-import {createGoogleGenerativeAI, GoogleGenerativeAIProvider} from '@ai-sdk/google';
 import {FinishReason, generateObject} from "ai";
+import {createGoogleGenerativeAI} from '@ai-sdk/google';
+import {createGroq} from "@ai-sdk/groq";
+import {createOpenRouter, LanguageModelV2} from "@openrouter/ai-sdk-provider";
+import {createOpenAICompatible} from "@ai-sdk/openai-compatible";
 import {config} from "dotenv";
 import { readFileSync } from 'fs';
 import {
@@ -17,15 +20,17 @@ import nlpSchema, {NlpLogEntry, NlpResponse} from "./nlp-schema";
 
 config();
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const NVIDIA_NIM_API_KEY = process.env.NVIDIA_NIM_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const WIKI_API_URL = "https://metro.hopperelec.co.uk/wiki/api.php";
 const WIKI_QUERY = "[[Has unit identifier::+]]|?Has unit identifier|?Has unit status|limit=200";
 
 // Model Hierarchy: Best to Worst
-const MODELS = [
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-2.0-flash'
-];
+const MODELS: {
+    name?: string;
+    model: LanguageModelV2;
+}[] = [];
 
 // Fallback State References
 // We track the index of the "lowest quality model disabled".
@@ -37,7 +42,6 @@ let minuteExpiry = 0;
 let dayDisabledIndex = -1;
 let dayExpiry = 0;
 
-let google: GoogleGenerativeAIProvider;
 let systemPrompt: string;
 let unitStatuses: Record<string, string>;
 const clarificationForms = new Map<Snowflake, {
@@ -45,11 +49,56 @@ const clarificationForms = new Map<Snowflake, {
 } & JSONModal>();
 
 if (GOOGLE_AI_API_KEY) {
-    google = createGoogleGenerativeAI({ apiKey: GOOGLE_AI_API_KEY });
+    const google = createGoogleGenerativeAI({ apiKey: GOOGLE_AI_API_KEY });
+    MODELS.push(
+        {
+            name: 'Gemini 2.5 Flash',
+            model: google('gemini-2.5-flash')
+        },
+        {
+            name: 'Gemini 2.5 Flash Lite',
+            model: google('gemini-2.5-flash-lite')
+        },
+        {
+            name: 'Gemini 2.0 Flash',
+            model: google('gemini-2.0-flash')
+        }
+    );
+}
+if (GROQ_API_KEY) {
+    const groq = createGroq({apiKey: GROQ_API_KEY});
+    MODELS.push({
+        name: 'gpt-oss-120b via Groq',
+        model: groq('openai/gpt-oss-120b'),
+    });
+}
+if (OPENROUTER_API_KEY) {
+    const openrouter = createOpenRouter({apiKey: OPENROUTER_API_KEY});
+    MODELS.push({
+        name: 'gpt-oss-120b via OpenRouter',
+        model: openrouter('openai/gpt-oss-120b:free')
+    });
+}
+if (NVIDIA_NIM_API_KEY) {
+    // Broken: NVIDIA NIM seems to finish thinking then never provide the actual response
+    const nim = createOpenAICompatible({
+        name: 'nim',
+        baseURL: 'https://integrate.api.nvidia.com/v1',
+        headers: {
+            Authorization: `Bearer ${NVIDIA_NIM_API_KEY}`,
+        },
+    });
+    MODELS.push({
+        name: 'gpt-oss-120b via NVIDIA NIM',
+        model: nim('openai/gpt-oss-120b')
+    });
+}
+
+if (MODELS.length === 0) {
+    console.warn('No AI models are configured. AI logging will be disabled.');
+} else {
     systemPrompt = readFileSync('nlp-system-prompt.md', 'utf-8');
     loadWikiData();
-} else {
-    console.warn('Warning: GOOGLE_AI_API_KEY is not set. AI features will be disabled.');
 }
 
 function loadWikiData() {
@@ -81,8 +130,6 @@ async function runPrompt(
     messages: NLPConversation,
     currentLog: DailyLog, // for context in confirmations
 ): Promise<void> {
-    if (!google) throw new Error('Google Generative AI is not configured.');
-
     const {logWithId, warnWithId, errorWithId} = getIdLoggers(interaction.id);
     logWithId('Running AI prompt', messages);
 
@@ -96,15 +143,20 @@ async function runPrompt(
     let response: {object: NlpResponse, finishReason: FinishReason};
     let modelName: string;
     for (let i = Math.max(effectiveMinuteIndex, dayDisabledIndex) + 1; i < MODELS.length; i++) {
-        logWithId(`Attempting model: ${MODELS[i]}`);
-        modelName = MODELS[i];
+        modelName = MODELS[i].name
+        logWithId(`Attempting model: ${modelName}`);
         try {
             response = await generateObject({
-                model: google(modelName),
+                model: MODELS[i].model,
                 schema: nlpSchema,
                 system: systemPrompt,
                 messages,
                 temperature: 0,
+                providerOptions: {
+                    groq: {
+                        reasoningEffort: 'high'
+                    }
+                }
             });
             if (i === minuteDisabledIndex) {
                 minuteDisabledIndex = -1;
@@ -160,7 +212,7 @@ async function runPrompt(
             default: // still try parsing in miscellaneous cases; the try/catch will handle errors
                 logWithId('AI response received', response.object);
 
-                // Somehow, the AI is capable of bypassing the schema, so we have to do extra checks
+                // Schema isn't always enforced properly, so we need to validate it ourselves
                 if (!response.object.type) {
                     warnWithId('AI response missing type field');
                     replyWithModel('Sorry, but the AI generated an invalid response.');
@@ -360,7 +412,7 @@ function formatInitialPrompt(prompt: string, user: User, currentLog: DailyLog): 
 }
 
 export async function aiLogCommand(currentLog: DailyLog, interaction: ChatInputCommandInteraction): Promise<void> {
-    if (!google) {
+    if (MODELS.length === 0) {
         await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
         return;
     }
@@ -371,13 +423,13 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: ChatInputC
 }
 
 export async function aiLogContextMenu(currentLog: DailyLog, interaction: MessageContextMenuCommandInteraction) {
-    if (!google) {
+    if (MODELS.length === 0) {
         await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
         return;
     }
 
     const prompt = interaction.targetMessage.content;
-    console.log(`AI Log Context Menu invoked by @${interaction.user.tag} on message ${interaction.targetMessage.id}: ${prompt}`);
+    console.log(`AI Log Context Menu invoked by @${interaction.user.tag} on message ${interaction.targetMessage.id}`);
     await runPrompt(interaction, formatInitialPrompt(prompt, interaction.user, currentLog), currentLog);
 }
 

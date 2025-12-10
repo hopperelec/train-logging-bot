@@ -9,6 +9,10 @@
 	},
 	"dependencies": {
 		"@ai-sdk/google": "^2.0.44",
+		"@ai-sdk/groq": "^2.0.32",
+		"@ai-sdk/openai-compatible": "^1.0.28",
+		"@ai-sdk/provider-utils": "^3.0.18",
+		"@openrouter/ai-sdk-provider": "^1.5.0",
 		"ai": "^5.0.104",
 		"discord.js": "^14.25.1",
 		"dotenv": "^16.5.0"
