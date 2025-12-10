@@ -89,6 +89,7 @@ let approvalChannel: TextChannel;
 let transactionChannel: TextChannel;
 let contributorGuild: Guild;
 let logAllocationCommandId: string;
+let aiLogCommandId: string;
 let currentLogMessage: Message | Record<TrnCategory, Message>;
 let todaysLog: DailyLog = {};
 const unconfirmedSubmissions = new Map<Snowflake, Submission>();
@@ -574,8 +575,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         }
 
     } else if (interaction.commandName === 'usage') {
-        // TODO: This will need thoroughly changed
-        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. To submit a train for the day, use </log-allocation:${logAllocationCommandId}>. As you type the command, Discord will show you the command options and describe what to put in them. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. If it is a non-passenger vehicle, contributors may also post it in <#1377249182116479027>.`);
+        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to submit changes to the log. The recommended way is </ai-log:${aiLogCommandId}>, which allows you to describe an allocation or some changes to make in any format you like and have an AI make the changes for you. Alternatively, you can manually add/edit an allocation using </log-allocation:${logAllocationCommandId}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Check <#1429595223939612823> for more details.`);
     }
 }
 
@@ -892,6 +892,7 @@ client.once('clientReady', async () => {
         }
     ]);
     logAllocationCommandId = commands.find(cmd => cmd.name === 'log-allocation').id;
+    aiLogCommandId = commands.find(cmd => cmd.name === 'ai-log').id;
 
     await startNewLog();
     const now = new Date();
