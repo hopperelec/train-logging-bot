@@ -815,7 +815,7 @@ client.once('clientReady', async () => {
                     type: 3, // string
                     description: "Don't specify if it's just you! Defaults to you",
                     maxLength: 128,
-                    autocomplete: true
+                    // Don't auto-complete, so that Discord provides mentions
                 },
                 {
                     name: 'notes',
