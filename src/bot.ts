@@ -14,7 +14,7 @@ import {
     BaseMessageOptions,
     ThreadChannel,
     DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
-    ChatInputCommandInteraction,
+    ChatInputCommandInteraction, GuildMember,
 } from 'discord.js';
 import { config } from 'dotenv';
 import {normalizeTRN} from "./normalization";
@@ -102,6 +102,23 @@ function logTransaction(message: string | BaseMessageOptions) {
 
 export function addUnconfirmedSubmission(id: Snowflake, submission: Submission) {
     unconfirmedSubmissions.set(id, submission);
+}
+
+export async function searchMembers(guild: Guild, queries: string[]): Promise<GuildMember[]> {
+    const results = await Promise.all(queries.map(async (query) => {
+        try {
+            const search = await guild.members.search({ query, limit: 5 });
+            return [...search.values()];
+        } catch (e) {
+            console.error(e);
+            return [];
+        }
+    }));
+    const uniqueResults = new Map<Snowflake, GuildMember>();
+    for (const member of results.flat()) {
+        uniqueResults.set(member.id, member);
+    }
+    return [...uniqueResults.values()];
 }
 
 function replacePingsWithNames(text: string) {

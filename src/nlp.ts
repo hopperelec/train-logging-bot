@@ -14,7 +14,7 @@ import {
     ModalSubmitInteraction, InteractionEditReplyOptions,
 } from "discord.js";
 import {DailyLog, JSONModal, LogTransaction, NLPConversation, NlpSubmission} from "./types";
-import {addUnconfirmedSubmission} from "./bot";
+import {addUnconfirmedSubmission, searchMembers} from "./bot";
 import {getIdLoggers, listTransactions} from "./utils";
 import nlpSchema, {NlpLogEntry, NlpResponse} from "./nlp-schema";
 
@@ -129,11 +129,10 @@ async function runPrompt(
     interaction: CommandInteraction | ModalSubmitInteraction,
     messages: NLPConversation,
     currentLog: DailyLog, // for context in confirmations
+    deferReplyPromise: Promise<any> = interaction.deferReply({flags: ['Ephemeral']}).catch(getIdLoggers(interaction.id).errorWithId)
 ): Promise<void> {
     const {logWithId, warnWithId, errorWithId} = getIdLoggers(interaction.id);
     logWithId('Running AI prompt', messages);
-
-    const deferReplyPromise = interaction.deferReply({flags: ['Ephemeral']}).catch(errorWithId);
 
     // Try models from best to worst until one works without rate limiting
     if (Date.now() > dayExpiry) {
@@ -221,7 +220,7 @@ async function runPrompt(
                 switch (response.object.type) {
                     case 'accept':
                         if (!Array.isArray(response.object.transactions)) {
-                            warnWithId("AI accepted but didn't include the transactions field:");
+                            warnWithId("AI accepted but didn't include the transactions field");
                             let message = 'The AI accepted your query but did not provide any changes to make.';
                             if (response.object.notes) {
                                 message += `\n**Notes by AI:** ${response.object.notes}`;
@@ -361,6 +360,46 @@ async function runPrompt(
                             warnWithId('AI rejected but provided no detail');
                             replyWithModel('Sorry, the AI rejected your query but did not provide a reason.');
                         }
+                        return;
+
+                    case 'user_search':
+                        if (!Array.isArray(response.object.queries) || !response.object.queries.every(q => typeof q === 'string')) {
+                            warnWithId('AI requested user search but provided no queries');
+                            replyWithModel('Sorry, the AI tried to search for users you mentioned, but did not provide any names to search for.');
+                            return;
+                        }
+                        // TODO: Provide examples of user_search in the system prompt
+
+                        const editReplyPromise = interaction.editReply(`*Searching for members matching: ${response.object.queries.join(', ')}...*`).catch(errorWithId);
+                        const searchResults = await searchMembers(interaction.guild, response.object.queries);
+                        await runPrompt(
+                            interaction,
+                            [
+                                ...messages,
+                                {
+                                    role: 'user',
+                                    content: JSON.stringify(searchResults.map(member => {
+                                        const nameInfo: {
+                                            id: string;
+                                            username: string;
+                                            globalName: string;
+                                            nickname?: string;
+                                        } = {
+                                            id: member.id,
+                                            username: member.user.username,
+                                            globalName: member.user.globalName,
+                                        };
+                                        if (member.nickname) {
+                                            nameInfo.nickname = member.nickname;
+                                        }
+                                        return nameInfo
+                                    }))
+                                }
+                            ],
+                            currentLog,
+                            // Wait for editReplyPromise too, so that the "Searching for..." reply doesn't overwrite the final reply if the final reply finishes first
+                            Promise.all([deferReplyPromise, editReplyPromise])
+                        )
                         return;
 
                     default:

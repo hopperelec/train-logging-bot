@@ -21,7 +21,12 @@ interface RejectResponse {
     detail: string;
 }
 
-export type NlpResponse = AcceptResponse | ClarifyResponse | RejectResponse;
+interface UserSearchResponse {
+    type: "user_search";
+    queries: string[];
+}
+
+export type NlpResponse = AcceptResponse | ClarifyResponse | RejectResponse | UserSearchResponse;
 
 export default jsonSchema<NlpResponse>({
     type: "object",
@@ -208,6 +213,18 @@ export default jsonSchema<NlpResponse>({
                 detail: {type: "string"}
             },
             required: ["type", "detail"],
+            additionalProperties: false
+        },
+        {
+            type: "object",
+            properties: {
+                type: {const: "user_search"},
+                queries: {
+                    type: "array",
+                    items: {type: "string"}
+                }
+            },
+            required: ["type", "queries"],
             additionalProperties: false
         }
     ]
