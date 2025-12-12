@@ -11,7 +11,7 @@ import {
     CommandInteraction, MessageContextMenuCommandInteraction, Snowflake, User,
     ButtonStyle, APISelectMenuOption, TextInputStyle,
     ChatInputCommandInteraction, TextInputComponentData, StringSelectMenuComponentData, ButtonInteraction,
-    ModalSubmitInteraction, InteractionEditReplyOptions,
+    ModalSubmitInteraction, InteractionEditReplyOptions, Message,
 } from "discord.js";
 import {DailyLog, JSONModal, LogTransaction, NLPConversation, NlpSubmission} from "./types";
 import {addUnconfirmedSubmission, searchMembers} from "./bot";
@@ -26,10 +26,10 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const WIKI_API_URL = "https://metro.hopperelec.co.uk/wiki/api.php";
 const WIKI_QUERY = "[[Has unit identifier::+]]|?Has unit identifier|?Has unit status|limit=200";
 
-// Model Hierarchy: Best to Worst
 const MODELS: {
     name?: string;
     model: LanguageModelV2;
+    priority: number; // Higher is better
 }[] = [];
 
 // Fallback State References
@@ -53,15 +53,18 @@ if (GOOGLE_AI_API_KEY) {
     MODELS.push(
         {
             name: 'Gemini 2.5 Flash',
-            model: google('gemini-2.5-flash')
+            model: google('gemini-2.5-flash'),
+            priority: 4
         },
         {
             name: 'Gemini 2.5 Flash Lite',
-            model: google('gemini-2.5-flash-lite')
+            model: google('gemini-2.5-flash-lite'),
+            priority: 1
         },
         {
             name: 'Gemini 2.0 Flash',
-            model: google('gemini-2.0-flash')
+            model: google('gemini-2.0-flash'),
+            priority: 0
         }
     );
 }
@@ -70,13 +73,15 @@ if (GROQ_API_KEY) {
     MODELS.push({
         name: 'gpt-oss-120b via Groq',
         model: groq('openai/gpt-oss-120b'),
+        priority: 3
     });
 }
 if (OPENROUTER_API_KEY) {
     const openrouter = createOpenRouter({apiKey: OPENROUTER_API_KEY});
     MODELS.push({
         name: 'gpt-oss-120b via OpenRouter',
-        model: openrouter('openai/gpt-oss-120b:free')
+        model: openrouter('openai/gpt-oss-120b:free'),
+        priority: 2
     });
 }
 if (NVIDIA_NIM_API_KEY) {
@@ -90,13 +95,15 @@ if (NVIDIA_NIM_API_KEY) {
     });
     MODELS.push({
         name: 'gpt-oss-120b via NVIDIA NIM',
-        model: nim('openai/gpt-oss-120b')
+        model: nim('openai/gpt-oss-120b'),
+        priority: -1
     });
 }
 
 if (MODELS.length === 0) {
     console.warn('No AI models are configured. AI logging will be disabled.');
 } else {
+    MODELS.sort((a, b) => b.priority - a.priority);
     systemPrompt = readFileSync('nlp-system-prompt.md', 'utf-8');
     loadWikiData();
 }
@@ -195,13 +202,13 @@ async function runPrompt(
         return;
     }
 
-    function replyWithModel(options: string | InteractionEditReplyOptions) {
+    async function replyWithModel(options: string | InteractionEditReplyOptions): Promise<void | Message> {
         if (typeof options === 'string') {
             options += `\n-# Model used: ${modelName}`;
         } else {
             options.content += `\n-# Model used: ${modelName}`;
         }
-        interaction.editReply(options).catch(errorWithId);
+        return interaction.editReply(options).catch(errorWithId);
     }
 
     try {
@@ -214,7 +221,7 @@ async function runPrompt(
                 // Schema isn't always enforced properly, so we need to validate it ourselves
                 if (!response.object.type) {
                     warnWithId('AI response missing type field');
-                    replyWithModel('Sorry, but the AI generated an invalid response.');
+                    await replyWithModel('Sorry, but the AI generated an invalid response.');
                     return;
                 }
                 switch (response.object.type) {
@@ -225,7 +232,7 @@ async function runPrompt(
                             if (response.object.notes) {
                                 message += `\n**Notes by AI:** ${response.object.notes}`;
                             }
-                            replyWithModel(message);
+                            await replyWithModel(message);
                             return;
                         }
 
@@ -263,7 +270,7 @@ async function runPrompt(
                             if (response.object.notes) {
                                 message += `\n**Notes by AI:** ${response.object.notes}`;
                             }
-                            replyWithModel(message);
+                            await replyWithModel(message);
                             return;
                         }
 
@@ -280,7 +287,7 @@ async function runPrompt(
                             transactions,
                             messages,
                         });
-                        replyWithModel({
+                        await replyWithModel({
                             content: lines.join('\n'),
                             components: [
                                 new ActionRowBuilder<ButtonBuilder>()
@@ -330,7 +337,7 @@ async function runPrompt(
                             )
                         )) {
                             warnWithId("AI requested clarification but didn't include a valid form:", response.object);
-                            replyWithModel('Sorry, the AI requested clarification but did not provide a valid form for you to complete.');
+                            await replyWithModel('Sorry, the AI requested clarification but did not provide a valid form for you to complete.');
                             return;
                         }
                         clarificationForms.set(interaction.id, {
@@ -338,7 +345,7 @@ async function runPrompt(
                             title: response.object.title,
                             components: response.object.components
                         });
-                        replyWithModel({
+                        await replyWithModel({
                             content: "The AI has asked for clarification. Please click the button below to open the clarification form.",
                             components: [
                                 new ActionRowBuilder<ButtonBuilder>()
@@ -355,22 +362,22 @@ async function runPrompt(
 
                     case 'reject':
                         if (response.object.detail) {
-                            replyWithModel(response.object.detail);
+                            await replyWithModel(response.object.detail);
                         } else {
                             warnWithId('AI rejected but provided no detail');
-                            replyWithModel('Sorry, the AI rejected your query but did not provide a reason.');
+                            await replyWithModel('Sorry, the AI rejected your query but did not provide a reason.');
                         }
                         return;
 
                     case 'user_search':
                         if (!Array.isArray(response.object.queries) || !response.object.queries.every(q => typeof q === 'string')) {
                             warnWithId('AI requested user search but provided no queries');
-                            replyWithModel('Sorry, the AI tried to search for users you mentioned, but did not provide any names to search for.');
+                            await replyWithModel('Sorry, the AI tried to search for users you mentioned, but did not provide any names to search for.');
                             return;
                         }
                         // TODO: Provide examples of user_search in the system prompt
 
-                        const editReplyPromise = interaction.editReply(`*Searching for members matching: ${response.object.queries.join(', ')}...*`).catch(errorWithId);
+                        const editReplyPromise = replyWithModel(`*Searching for members matching: ${response.object.queries.join(', ')}...*`);
                         const searchResults = await searchMembers(interaction.guild, response.object.queries);
                         await runPrompt(
                             interaction,
@@ -404,26 +411,26 @@ async function runPrompt(
 
                     default:
                         warnWithId('AI response has unknown type');
-                        replyWithModel('Sorry, but the AI generated an invalid response.');
+                        await replyWithModel('Sorry, but the AI generated an invalid response.');
                         return;
                 }
             // fallthrough (shouldn't happen)
             case 'content-filter':
                 warnWithId('AI response rejected by content filter');
-                replyWithModel('Sorry, but the AI refused to process your request due to content restrictions.');
+                await replyWithModel('Sorry, but the AI refused to process your request due to content restrictions.');
                 return;
             case 'tool-calls':
                 warnWithId('AI response triggered tool calls unexpectedly');
-                replyWithModel('Sorry, but for some reason the AI triggered tool calls instead of generating a proper response.');
+                await replyWithModel('Sorry, but for some reason the AI triggered tool calls instead of generating a proper response.');
                 return;
             case 'error':
                 warnWithId('Error during AI response generation');
-                replyWithModel('Sorry, but there was an error while the AI was generating a response.');
+                await replyWithModel('Sorry, but there was an error while the AI was generating a response.');
                 return;
         }
     } catch (error) {
         errorWithId('Exception during AI prompt processing', error);
-        replyWithModel('Sorry, there was an error processing your request. Please try again later.');
+        await replyWithModel('Sorry, there was an error processing your request. Please try again later.');
     }
 }
 
