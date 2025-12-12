@@ -377,7 +377,10 @@ async function runPrompt(
                         }
                         // TODO: Provide examples of user_search in the system prompt
 
-                        const editReplyPromise = replyWithModel(`*Searching for members matching: ${response.object.queries.join(', ')}...*`);
+                        const editReplyPromise = replyWithModel([
+                            `*Searching for members matching: ${response.object.queries.join(', ')}. Please wait...*`,
+                            '**Note:** It is much preferred for you to directly @ mention sources in the server, rather than using their name.'
+                        ].join('\n'));
                         const searchResults = await searchMembers(interaction.guild, response.object.queries);
                         await runPrompt(
                             interaction,
