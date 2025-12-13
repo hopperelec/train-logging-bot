@@ -73,19 +73,22 @@ export function entryToString(entry: LogEntry) {
     return `${entry.trn} - ${entry.details.withdrawn ? `~~${entry.units}~~` : entry.units} (${detailsParts.join(' | ')})`;
 }
 
-export function listTransactions(transactions: LogTransaction[], referenceLog: DailyLog) {
+export function listTransactions(
+    transactions: LogTransaction[],
+    referenceLog: DailyLog,
+    prefixes: { add: string; remove: string } = { add: '🟩 ', remove: '🟥 ' }
+) {
     return transactions.flatMap(transaction => {
         const lines = []
         const existingDetails = referenceLog[transaction.trn]?.[transaction.units];
         if (existingDetails) {
-            lines.push(`🟥 ${entryToString({
-                trn: transaction.trn,
-                units: transaction.units,
+            lines.push(prefixes.remove + entryToString({
+                ...transaction,
                 details: existingDetails
-            })}`);
+            }));
         }
         if (transaction.type === 'add') {
-            lines.push(`🟩 ${entryToString(transaction)}`);
+            lines.push(prefixes.add + entryToString(transaction));
         }
         return lines;
     }).join('\n');
