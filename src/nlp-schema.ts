@@ -9,7 +9,8 @@ interface AcceptResponse {
     transactions: (LogRemoveTransaction | (
         { type: "add" } & NlpLogEntry
         ))[];
-    notes?: string;
+    user_notes?: string;
+    summary?: string;
 }
 
 interface ClarifyResponse extends JSONModal {
@@ -67,7 +68,8 @@ export default jsonSchema<NlpResponse>({
                     },
                     minItems: 1
                 },
-                notes: {type: "string"}
+                user_notes: {type: "string"},
+                summary: {type: "string"}
             },
             required: ["type", "transactions"],
             additionalProperties: false
