@@ -379,7 +379,6 @@ async function runPrompt(
                             await replyWithModel('Sorry, the AI tried to search for users you mentioned, but did not provide any names to search for.');
                             return;
                         }
-                        // TODO: Provide examples of user_search in the system prompt
 
                         const editReplyPromise = replyWithModel([
                             `*Searching for members matching: ${response.object.queries.join(', ')}. Please wait...*`,
