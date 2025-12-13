@@ -289,17 +289,18 @@ async function runTransactions(transactions: LogTransaction[]) {
 
 async function submitSubmission(submission: Submission): Promise<string> {
     if (isContributor(submission.user)) {
-        const listedTransactions = listTransactions(submission.transactions, todaysLog);
+        const listedTransactionsEmojis = listTransactions(submission.transactions, todaysLog);
+        const listedTransactionsConsole = listTransactions(submission.transactions, todaysLog, { add: '+', remove: '-' });
         const undoTransactions = invertTransactions(submission.transactions);
         await runTransactions(submission.transactions);
-        console.log(`Submission by contributor @${submission.user.tag} applied directly to log:\n${listedTransactions}`);
+        console.log(`Submission by contributor @${submission.user.tag} applied directly to log:\n${listedTransactionsConsole}`);
 
         const message = await sendMessageWithoutPinging({
             embeds: [
                 new EmbedBuilder()
                     .setTitle('Train log amended')
                     .setColor(0x00ff00)
-                    .setDescription(listedTransactions)
+                    .setDescription(listedTransactionsEmojis)
                     .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() })
             ],
             components: [
@@ -351,7 +352,7 @@ async function submitSubmission(submission: Submission): Promise<string> {
     });
     submissionsForApproval.set(message.id, submission);
 
-    console.log(`Submission by @${submission.user.tag} submitted for approval:\n${listTransactions(submission.transactions, todaysLog)}`);
+    console.log(`Submission by @${submission.user.tag} submitted for approval:\n${listTransactions(submission.transactions, todaysLog, { add: '+', remove: '-' })}`);
     return '📋 Your gen has been submitted for approval by contributors.';
 }
 
