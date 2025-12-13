@@ -96,8 +96,8 @@ const unconfirmedSubmissions = new Map<Snowflake, Submission>();
 const submissionsForApproval = new Map<Snowflake, Submission>();
 const executedHistory = new Map<Snowflake, ExecutedSubmission>();
 
-function logTransaction(message: string | BaseMessageOptions) {
-    if (transactionChannel) sendMessageWithoutPinging(message, transactionChannel).then();
+async function logTransaction(message: string | BaseMessageOptions): Promise<void | Message> {
+    if (transactionChannel) return sendMessageWithoutPinging(message, transactionChannel).then();
 }
 
 export function addUnconfirmedSubmission(id: Snowflake, submission: Submission) {
@@ -295,14 +295,16 @@ async function submitSubmission(submission: Submission): Promise<string> {
         await runTransactions(submission.transactions);
         console.log(`Submission by contributor @${submission.user.tag} applied directly to log:\n${listedTransactionsConsole}`);
 
-        const message = await sendMessageWithoutPinging({
-            embeds: [
-                new EmbedBuilder()
-                    .setTitle('Train log amended')
-                    .setColor(0x00ff00)
-                    .setDescription(listedTransactionsEmojis)
-                    .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() })
-            ],
+        const embed = new EmbedBuilder()
+            .setTitle('Train log amended')
+            .setColor(0x00ff00)
+            .setDescription(listedTransactionsEmojis)
+            .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() });
+        if ('summary' in submission && submission.summary) {
+            embed.addFields({ name: 'Summary', value: submission.summary });
+        }
+        const message = await logTransaction({
+            embeds: [embed],
             components: [
                 new ActionRowBuilder<ButtonBuilder>()
                     .addComponents(
@@ -313,8 +315,7 @@ async function submitSubmission(submission: Submission): Promise<string> {
                             .setEmoji('↩️')
                     )
             ]
-        }, transactionChannel || logChannel);
-
+        });
         if (message) {
             executedHistory.set(message.id, {
                 submissionId: message.id,
@@ -326,14 +327,16 @@ async function submitSubmission(submission: Submission): Promise<string> {
     }
     if (!approvalChannel) return '❌ Only contributors can update the log right now.';
 
+    const embed = new EmbedBuilder()
+        .setTitle('Train gen submission')
+        .setColor(0xff9900)
+        .setDescription(listTransactions(submission.transactions, todaysLog))
+        .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() });
+    if ('summary' in submission && submission.summary) {
+        embed.addFields({ name: 'Summary', value: submission.summary });
+    }
     const message = await approvalChannel.send({
-        embeds: [
-            new EmbedBuilder()
-                .setTitle('Train gen submission')
-                .setColor(0xff9900)
-                .setDescription(listTransactions(submission.transactions, todaysLog))
-                .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() })
-        ],
+        embeds: [embed],
         components: [
             new ActionRowBuilder<ButtonBuilder>()
                 .addComponents(
@@ -368,19 +371,21 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
     });
 
     console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
+    const embed = new EmbedBuilder()
+        .setTitle('Train log amended')
+        .setColor(0x00ff00)
+        .setDescription(listedTransactions)
+        .setFooter({
+            text: `Submission by ${submission.user.tag}, approved by ${interaction.user.tag}`,
+            iconURL: submission.user.displayAvatarURL()
+        });
+    if ('summary' in submission && submission.summary) {
+        embed.addFields({ name: 'Summary', value: submission.summary });
+    }
     logTransaction({
         content: `✅ ${interaction.message.url} (submission by <@${submission.user.id}>) approved by <@${interaction.user.id}>`,
-        embeds: [
-            new EmbedBuilder()
-                .setTitle('Train log amended')
-                .setColor(0x00ff00)
-                .setDescription(listedTransactions)
-                .setFooter({
-                    text: `Submission by ${submission.user.tag}, approved by ${interaction.user.tag}`,
-                    iconURL: submission.user.displayAvatarURL()
-                })
-        ]
-    });
+        embeds: [embed]
+    }).then();
 
     return {
         embeds: [
@@ -414,7 +419,7 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
 
 async function denySubmission(interaction: ButtonInteraction, submission: Submission) {
     console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
-    logTransaction(`❌ ${interaction.message.url} (submission by <@${submission.user.id}>) denied by <@${interaction.user.id}>`);
+    logTransaction(`❌ ${interaction.message.url} (submission by <@${submission.user.id}>) denied by <@${interaction.user.id}>`).then();
     return {
         embeds: [
             new EmbedBuilder()
@@ -660,7 +665,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
                     .setDescription(listedTransactions)
                     .setFooter({ text: `Undone by ${interaction.user.tag}`, iconURL: executed.user.displayAvatarURL() })
             ]
-        });
+        }).then();
         interaction.message.edit({
             content: `↩️ This action has been undone by <@${interaction.user.id}>.`,
             components: []
@@ -763,7 +768,7 @@ async function startNewLog() {
     cleanupNLP();
     currentLogMessage = await logChannel.send('*No allocations have been logged yet today. Check back here later!*');
     console.log(`Started new log for ${new Date().toISOString().split('T')[0]}`);
-    logTransaction('📝 New log started');
+    logTransaction('📝 New log started').then();
 }
 
 client.once('clientReady', async () => {

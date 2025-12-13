@@ -229,8 +229,8 @@ async function runPrompt(
                         if (!Array.isArray(response.object.transactions)) {
                             warnWithId("AI accepted but didn't include the transactions field");
                             let message = 'The AI accepted your query but did not provide any changes to make.';
-                            if (response.object.notes) {
-                                message += `\n**Notes by AI:** ${response.object.notes}`;
+                            if (response.object.user_notes) {
+                                message += `\n**Notes for you:** ${response.object.user_notes}`;
                             }
                             await replyWithModel(message);
                             return;
@@ -267,8 +267,8 @@ async function runPrompt(
                         if (transactions.length === 0) {
                             warnWithId('AI accepted but provided no valid transactions');
                             let message = 'The AI accepted your query but did not provide any valid changes to make.';
-                            if (response.object.notes) {
-                                message += `\n**Notes by AI:** ${response.object.notes}`;
+                            if (response.object.user_notes) {
+                                message += `\n**Notes for you:** ${response.object.user_notes}`;
                             }
                             await replyWithModel(message);
                             return;
@@ -279,13 +279,17 @@ async function runPrompt(
                             "**Do these changes look correct?**",
                             listTransactions(transactions, currentLog)
                         ];
-                        if (response.object.notes) {
-                            lines.push(`**Notes by AI:** ${response.object.notes}`);
+                        if (response.object.user_notes) {
+                            lines.push(`**Notes about how the AI interpreted your query:** ${response.object.user_notes}`);
+                        }
+                        if (response.object.summary) {
+                            lines.push(`**Summary that will be given to contributors:** ${response.object.summary}`);
                         }
                         addUnconfirmedSubmission(interaction.id, {
                             user: interaction.user,
                             transactions,
                             messages,
+                            summary: response.object.summary,
                         });
                         await replyWithModel({
                             content: lines.join('\n'),

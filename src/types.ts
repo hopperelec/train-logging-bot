@@ -50,6 +50,7 @@ interface ManualSubmission {
 
 export interface NlpSubmission extends ManualSubmission {
     messages: NLPConversation;
+    summary: string;
 }
 
 export type Submission = ManualSubmission | NlpSubmission;
