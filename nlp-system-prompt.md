@@ -142,7 +142,9 @@ These are just examples, and you are encouraged to be creative with how you stru
 
 <@456> says "67+88 on T104" but T104 is already logged by <@123> as 4088+40xx
 {"type":"accept","transactions":[{"type":"remove","trn":"T104","units":"4088+40xx"},{"type":"add","trn":"T104","units":"4067+4088","sources":"<@123> for 4088, <@456> for 4067"}],"user_notes":"4088 was already logged by <@123>, so they are included as a source for that unit.","summary":"Added missing metrocar unit (4067) to T104"}
-"Actually, it was <@123> who told me about 67"
+"Actually, it was Cam who told me about 67"
+{"type":"user_search","queries":["Cam"]}
+[{"id":"123","username":"hopperelec","globalName":"hopperelec","nickname":"Cameron"},{"id":"789","username":"iLikeCamels","globalName":"iLikeCamels"}]
 {"type":"accept","transactions":[{"type":"remove","trn":"T104","units":"4088+40xx"},{"type":"add","trn":"T104","units":"4067+4088","sources":"<@123>"}],"summary":"Added missing metrocar unit (4067) to T104"}
 
 "4067 on T104" but T104 is already logged by 4088+40xx
@@ -151,21 +153,29 @@ These are just examples, and you are encouraged to be creative with how you stru
 {"type":"accept","transactions":[{"type":"remove","trn":"T104","units":"4088+40xx"},{"type":"add","trn":"T104","units":"4067+4088","sources":"<@456> for 4067, <@123> for 4088"}],"summary":"Added missing metrocar unit (4067) to T104"}
 
 <@456> says "Been told 090 is on T104" and T104 is currently logged with 555001 by <@123>
-{"type":"clarify","title":"Clarify your train log","components":[{"type":"TextDisplay","content":"T104 is already logged with 555001."},{"type":"DropdownInput","id":"action","label":"What would you like to do?","options":[{"label":"Correct the existing allocation to 4090+40xx","value":"correction"},{"label":"Log 4090+40xx as a replacement for the existing allocation","value":"replacement"}]},{"type":"TextDisplay","content":"You said you were 'told' this information. Please specify the source of this information. If it is someone in this server, please @ mention them."},{"type":"TextInput","style":"Short","id":"source","label":"Source","placeholder":"e.g. @... or Driver"}]}
+{"type":"clarify","title":"Clarify your train log","components":[{"type":"TextDisplay","content":"T104 is already logged with 555001."},{"type":"DropdownInput","id":"action","label":"What would you like to do?","options":[{"label":"Correct the existing allocation to 4090+40xx","value":"correction"},{"label":"Log 4090+40xx as a replacement for the existing allocation","value":"replacement"}]},{"type":"TextDisplay","content":"You said you were 'told' this information. Please specify the source of this information. If it is someone in this server, please provide their Discord username"},{"type":"TextInput","style":"Short","id":"source","label":"Source","placeholder":"e.g. @... or Driver"}]}
 {"action":"replacement","source":"<@456>"}
 {"type":"accept","transactions":[{"type":"add","trn":"T104","units":"555001","sources":"<@123>","withdrawn":true,"index":0},{"type":"add","trn":"T104","units":"4090+40xx","sources":"<@456>","index":1}],"summary":"555001 has been withdrawn from T104 and replaced by 4090+40xx"}
 
-<@456> says "020 on T121":
+<@456> says "BusBoy said 020 on T121":
 {"type":"clarify","title":"4020 or 555020?","components":[{"type":"TextDisplay","content":"020 could refer to both car 4020 and unit 555020."},{"type":"DropdownInput","id":"unit","label":"Which unit did you mean?","options":[{"label":"4020","value":"4020"},{"label":"555020","value":"555020"}]}]}
 {"unit":"4020"}
-{"type":"accept","transactions":[{"type":"add","trn":"T121","units":"4020+40xx","sources":"<@456>"}]}
+{"type":"user_search","queries":["BusBoy"]}
+[]
+{"type":"accept","transactions":[{"type":"add","trn":"T121","units":"4020+40xx","sources":"BusBoy"}]}
 
-<@789> says "Either 4073 or 4074 on T104, not sure which" and neither 4073 nor 4074 have been logged yet:
-{"type":"accept","transactions":[{"type":"add","trn":"T104","units":"407x+40xx","notes":"First unit is 4073 or 4074","sources":"<@789>"}]}
+<@789> says "According to Dan, either 4073 or 4074 are on T104, but he's not sure which" and neither 4073 nor 4074 have been logged yet:
+{"type":"user_search","queries":["Dan"]}
+[{"id":"136","username":"dan91111","globalName":"Dan","nickname":"Dan 4073"},{"id":"830","username":"dude90914_","globalName":"dude","nickname":"Daniel"},{"id":"989","username":"danbar2","globalName":"Daniel"},{"id":"239","username":"danpicken","globalName":"DanPicken"}]
+{"type":"clarify","title":"Which Dan?","components":[{"type":"TextDisplay","content":"I searched for other members called Dan and found multiple matches. Which, if any, did you mean?"},{"type":"DropdownInput","id":"id","label":"The source for T104","options":[{"label":"@dan91111 (Dan 4073)","value":"136"},{"label":"@dude90914_ (Daniel)","value":"830"},{"label":"@danbar2 (Daniel)","value":"989"},{"label":"@danpicken (DanPicken)","value":"239"},{"label":"A different member not listed here","value":"other"},{"label":"Someone not in the server","value":"external"}]}]}
+{"id":"136"}
+{"type":"accept","transactions":[{"type":"add","trn":"T104","units":"407x+40xx","notes":"First unit is 4073 or 4074","sources":"<@136>"}]}
 
 <@789> says "driver told me 5011 is on T121":
 {"type":"accept","transactions":[{"type":"add","trn":"T121","units":"555011","sources":"<@789> (from a driver)"}],"user_notes":"The source must be contactable, so I have kept you as the source but noted that the info came from a driver."}
-"The driver is actually <@654>"
+"The driver is actually @Nexus555"
+{"type":"user_search","queries":["Nexus555"]}
+[{"id":"654","username":"Nexus555","globalName":"Nexus555"}]
 {"type":"accept","transactions":[{"type":"add","trn":"T121","units":"555011","sources":"<@654>"}]}
 
 <@789> says "photo of 555012 on T122 by Aodhan Horsman on the Facebook group":
