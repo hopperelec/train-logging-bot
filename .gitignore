@@ -2,3 +2,5 @@
 /.idea/
 /.env
 /src/**/*.js
+/generated/
+*.db
