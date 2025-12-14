@@ -12,7 +12,7 @@ model Day {
   id Int @id @default(autoincrement())
 
   /// The corresponding date
-  date DateTime @db.Date @unique
+  date DateTime @unique
 
   /// Discord messages containing parts of this day's allocations
   messages    Message[]
