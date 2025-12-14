@@ -21,7 +21,6 @@ import {normalizeTRN} from "./normalization";
 import {
     DailyLog,
     ExecutedSubmission,
-    LogTransaction,
     Submission,
     TrnCategory
 } from "./types";
@@ -32,7 +31,8 @@ import {
     clarificationFormSubmission, nlpCorrectionFormSubmission,
     openClarificationForm, openNlpCorrectionForm
 } from "./nlp";
-import {categorizeTRN, dailyLogToString, listTransactions} from "./utils";
+import {categorizeTRN, dailyLogToString, invertTransactions, listTransactions} from "./utils";
+import {addMessage, getAllocation, getTodaysLog, loadTodaysLog, removeMessage, runTransactions} from "./db";
 
 config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -64,6 +64,7 @@ if (!CONTRIBUTOR_GUILD_ID) {
 }
 
 const CHARACTER_LIMIT = 2000; // Discord message character limit
+export const NEW_DAY_HOUR = 3;
 
 const CATEGORY_HEADERS = {
     green: '### Green line',
@@ -90,8 +91,7 @@ let transactionChannel: TextChannel;
 let contributorGuild: Guild;
 let logAllocationCommandId: string;
 let aiLogCommandId: string;
-let currentLogMessage: Message | Record<TrnCategory, Message>;
-let todaysLog: DailyLog = {};
+let currentLogMessage: Message | Partial<Record<TrnCategory, Message>>;
 const unconfirmedSubmissions = new Map<Snowflake, Submission>();
 const submissionsForApproval = new Map<Snowflake, Submission>();
 const executedHistory = new Map<Snowflake, ExecutedSubmission>();
@@ -155,7 +155,7 @@ function renderEmptyCategory(category: TrnCategory): string {
     return `${CATEGORY_HEADERS[category]}\n*No ${CATEGORY_DISPLAY_NAMES[category]} have been logged yet today.*`;
 }
 
-async function sendMessageWithoutPinging(content: string | BaseMessageOptions, channel = logChannel) {
+async function sendMessageWithoutPinging(content: string | BaseMessageOptions, channel: TextChannel): Promise<Message> {
     const initialContent = typeof content === 'string' ? replaceDiscordFeaturesWithNames(content) : {
         ...content,
         content: content.content ? replaceDiscordFeaturesWithNames(content.content) : undefined
@@ -169,7 +169,13 @@ async function sendMessageWithoutPinging(content: string | BaseMessageOptions, c
     return await message.edit(content);
 }
 
-async function editOrSendMessage(message: Message, content: string | BaseMessageOptions) {
+async function sendLogMessage(content: string | BaseMessageOptions): Promise<Message> {
+    const message = await sendMessageWithoutPinging(content, logChannel);
+    await addMessage(message);
+    return message;
+}
+
+async function editOrSendLogMessage(message: Message, content: string | BaseMessageOptions) {
     try {
         return await message.edit(
             typeof content === 'string'
@@ -178,13 +184,20 @@ async function editOrSendMessage(message: Message, content: string | BaseMessage
         )
     } catch {
         // If the message was deleted or something went wrong, send a new one
-        return await sendMessageWithoutPinging(content);
+        let newMessage: Message;
+        await Promise.all([
+            (async () => {
+                newMessage = await sendLogMessage(content);
+            })(),
+            removeMessage(message)
+        ])
+        return newMessage;
     }
 }
 
 async function updateLogMessage() {
     const categories: Record<string, DailyLog> = {};
-    for (const [trn, entry] of Object.entries(todaysLog)) {
+    for (const [trn, entry] of Object.entries(getTodaysLog())) {
         const line = categorizeTRN(trn);
         if (!categories[line]) categories[line] = {};
         categories[line][trn] = entry;
@@ -213,86 +226,61 @@ async function updateLogMessage() {
     }
 
     if (currentLogMessage instanceof Message) {
-        let content = `${renderSingleMessageCategory('green')}\n${renderSingleMessageCategory('yellow')}`;
-        if (categories.other) {
-            content += `\n${renderSingleMessageCategory('other')}`;
+        let content: string;
+        if (!categories.green && !categories.yellow && !categories.other) {
+            content = '*No allocations have been logged yet today. Check back here later!*';
+        } else {
+            content = `${renderSingleMessageCategory('green')}\n${renderSingleMessageCategory('yellow')}`;
+            if (categories.other) {
+                content += `\n${renderSingleMessageCategory('other')}`;
+            }
         }
+
         if (content.length > CHARACTER_LIMIT) {
             currentLogMessage = {
-                green: await editOrSendMessage(currentLogMessage, renderMultipleMessageCategory('green')),
-                yellow: await sendMessageWithoutPinging(renderMultipleMessageCategory('yellow')),
-                other: categories.other ? await sendMessageWithoutPinging(renderMultipleMessageCategory('other')) : undefined
+                green: await editOrSendLogMessage(currentLogMessage, renderMultipleMessageCategory('green')),
+                yellow: await sendLogMessage(renderMultipleMessageCategory('yellow')),
+            }
+            if (categories.other) {
+                currentLogMessage.other = await sendLogMessage(renderMultipleMessageCategory('other'));
             }
         } else {
-            currentLogMessage = await editOrSendMessage(currentLogMessage, content);
+            currentLogMessage = await editOrSendLogMessage(currentLogMessage, content);
         }
     } else {
-        currentLogMessage.green = await editOrSendMessage(currentLogMessage.green, renderMultipleMessageCategory('green'));
-        currentLogMessage.yellow = await editOrSendMessage(currentLogMessage.yellow, renderMultipleMessageCategory('yellow'));
+        currentLogMessage.green = await editOrSendLogMessage(currentLogMessage.green, renderMultipleMessageCategory('green'));
+        currentLogMessage.yellow = await editOrSendLogMessage(currentLogMessage.yellow, renderMultipleMessageCategory('yellow'));
         if (currentLogMessage.other) {
             // Modified implementation of `editOrSendMessage` to only re-send if there are other workings
             const content = renderMultipleMessageCategory('other');
             try {
                 currentLogMessage.other = await currentLogMessage.other.edit(content);
             } catch {
-                currentLogMessage.other = categories.other
-                    ? await sendMessageWithoutPinging(content)
-                    : undefined;
-            }
-        } else if (categories.other) {
-            currentLogMessage.other = await sendMessageWithoutPinging(renderMultipleMessageCategory('other'));
-        }
-    }
-}
-
-function invertTransactions(transactions: LogTransaction[], referenceLog = todaysLog): LogTransaction[] {
-    const inverse: LogTransaction[] = [];
-    // Process in reverse to maintain state validity
-    for (const tx of [...transactions].reverse()) {
-        const existingDetails = referenceLog[tx.trn]?.[tx.units];
-        if (tx.type === 'add' && !existingDetails) {
-            inverse.push({
-                type: 'remove',
-                trn: tx.trn,
-                units: tx.units
-            });
-        } else {
-            inverse.push({
-                type: 'add',
-                trn: tx.trn,
-                units: tx.units,
-                details: existingDetails
-            });
-        }
-    }
-    return inverse;
-}
-
-async function runTransactions(transactions: LogTransaction[]) {
-    for (const transaction of transactions) {
-        if (transaction.type === 'add') {
-            if (!todaysLog[transaction.trn]) {
-                todaysLog[transaction.trn] = {};
-            }
-            todaysLog[transaction.trn][transaction.units] = transaction.details;
-        } else if (transaction.type === 'remove') {
-            if (todaysLog[transaction.trn]) {
-                delete todaysLog[transaction.trn][transaction.units];
-                if (Object.keys(todaysLog[transaction.trn]).length === 0) {
-                    delete todaysLog[transaction.trn];
+                if (categories.other) {
+                    currentLogMessage.other = await sendLogMessage(content);
+                } else {
+                    await removeMessage(currentLogMessage.other);
+                    delete currentLogMessage.other;
                 }
             }
+        } else if (categories.other) {
+            currentLogMessage.other = await sendLogMessage(renderMultipleMessageCategory('other'));
         }
     }
-    await updateLogMessage();
 }
 
 async function submitSubmission(submission: Submission): Promise<string> {
     if (isContributor(submission.user)) {
-        const listedTransactionsEmojis = listTransactions(submission.transactions, todaysLog);
-        const listedTransactionsConsole = listTransactions(submission.transactions, todaysLog, { add: '+', remove: '-' });
+        const listedTransactionsEmojis = listTransactions(submission.transactions);
+        const listedTransactionsConsole = listTransactions(submission.transactions, { add: '+', remove: '-' });
         const undoTransactions = invertTransactions(submission.transactions);
-        await runTransactions(submission.transactions);
+        try {
+            await runTransactions(submission.transactions);
+        } catch (e) {
+            console.error(`@${submission.user.tag} tried to apply the following changes to the log, but an error occurred:\n${listedTransactionsConsole}\nError: ${e}`);
+            return '❌ There was an error applying your changes to the log.';
+        }
+        await updateLogMessage();
         console.log(`Submission by contributor @${submission.user.tag} applied directly to log:\n${listedTransactionsConsole}`);
 
         const embed = new EmbedBuilder()
@@ -330,7 +318,7 @@ async function submitSubmission(submission: Submission): Promise<string> {
     const embed = new EmbedBuilder()
         .setTitle('Train gen submission')
         .setColor(0xff9900)
-        .setDescription(listTransactions(submission.transactions, todaysLog))
+        .setDescription(listTransactions(submission.transactions))
         .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() });
     if ('summary' in submission && submission.summary) {
         embed.addFields({ name: 'Summary', value: submission.summary });
@@ -355,14 +343,22 @@ async function submitSubmission(submission: Submission): Promise<string> {
     });
     submissionsForApproval.set(message.id, submission);
 
-    console.log(`Submission by @${submission.user.tag} submitted for approval:\n${listTransactions(submission.transactions, todaysLog, { add: '+', remove: '-' })}`);
+    console.log(`Submission by @${submission.user.tag} submitted for approval:\n${listTransactions(submission.transactions, { add: '+', remove: '-' })}`);
     return '📋 Your gen has been submitted for approval by contributors.';
 }
 
 async function approveSubmission(interaction: ButtonInteraction, submission: Submission) {
-    const listedTransactions = listTransactions(submission.transactions, todaysLog);
+    console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
+
+    const listedTransactions = listTransactions(submission.transactions);
     const inverse = invertTransactions(submission.transactions);
-    await runTransactions(submission.transactions);
+    try {
+        await runTransactions(submission.transactions);
+    } catch (e) {
+        console.error(e);
+        return '❌ There was an error applying these changes to the log.';
+    }
+    await updateLogMessage();
     executedHistory.set(interaction.message.id, {
         submissionId: interaction.message.id,
         user: interaction.user,
@@ -370,7 +366,6 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
         undoTransactions: inverse
     });
 
-    console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
     const embed = new EmbedBuilder()
         .setTitle('Train log amended')
         .setColor(0x00ff00)
@@ -425,7 +420,7 @@ async function denySubmission(interaction: ButtonInteraction, submission: Submis
             new EmbedBuilder()
                 .setTitle('Train gen denied')
                 .setColor(0xff0000)
-                .setDescription(listTransactions(submission.transactions, todaysLog))
+                .setDescription(listTransactions(submission.transactions))
                 .setFooter({
                     text: `Submission by ${submission.user.tag}, denied by ${interaction.user.tag}`,
                     iconURL: submission.user.displayAvatarURL()
@@ -456,7 +451,7 @@ function isContributor(user: User) {
 
 async function handleCommandInteraction(interaction: ChatInputCommandInteraction) {
     if (interaction.commandName === 'ai-log') {
-        await aiLogCommand(todaysLog, interaction);
+        await aiLogCommand(interaction);
 
     } else if (interaction.commandName === 'log-allocation') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
@@ -475,7 +470,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             }]
         };
 
-        const existingEntry = todaysLog[trn]?.[units];
+        const existingEntry = getAllocation(trn, units);
         if (existingEntry) {
             if (
                 existingEntry.sources === sources &&
@@ -528,7 +523,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
     } else if (interaction.commandName === 'remove-allocation') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         const units = interaction.options.get('units', true).value as string;
-        const existingEntry = todaysLog[trn]?.[units];
+        const existingEntry = getAllocation(trn, units);
         if (!existingEntry) {
             await interaction.reply({
                 content: `❌ No such allocation is logged for today.`,
@@ -550,7 +545,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
 
     } else if (interaction.commandName === 'search-trn') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
-        const entry = todaysLog[trn];
+        const entry = getTodaysLog()[trn];
         if (entry) {
             await interaction.reply({
                 embeds: [
@@ -566,7 +561,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
     } else if (interaction.commandName === 'search-unit') {
         const query = (interaction.options.get('query', true).value as string).toLowerCase();
         const results: DailyLog = {};
-        for (const [trn, allocations] of Object.entries(todaysLog)) {
+        for (const [trn, allocations] of Object.entries(getTodaysLog())) {
             for (const [units, details] of Object.entries(allocations)) {
                 if (units.toLowerCase().includes(query)) {
                     if (!results[trn]) results[trn] = {};
@@ -651,8 +646,15 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
             return;
         }
 
-        const listedTransactions = listTransactions(executed.undoTransactions, todaysLog);
-        await runTransactions(executed.undoTransactions);
+        const listedTransactions = listTransactions(executed.undoTransactions);
+        try {
+            await runTransactions(executed.undoTransactions);
+        } catch (e) {
+            console.error(`@${interaction.user.tag} tried to undo action ${interaction.message.id}, but an error occurred.`, e);
+            interaction.reply({ content: '❌ There was an error undoing this action.', flags: ["Ephemeral"] }).catch(console.error);
+            return;
+        }
+        await updateLogMessage();
         executedHistory.delete(interaction.message.id);
 
         console.log(`Action ${interaction.message.id} undone by @${interaction.user.tag}`);
@@ -715,7 +717,7 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
     if (focused.name === 'trn') {
         const trn = (focused.value as string).toLowerCase();
         interaction.respond(
-            Object.keys(todaysLog)
+            Object.keys(getTodaysLog())
                 .filter(key => key.toLowerCase().includes(trn))
                 .map(key => ({ name: key, value: key }))
                 .slice(0, 25)
@@ -728,6 +730,7 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
         }
         trn = normalizeTRN(trn);
         const units = (focused.value as string).toLowerCase();
+        const todaysLog = getTodaysLog();
         const existingUnits = todaysLog[trn]
         const otherLoggedUnits = Object.entries(todaysLog)
             .filter(([key]) => key !== trn)
@@ -750,7 +753,7 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
             return;
         }
         trn = normalizeTRN(trn);
-        const existingValue: string | number = todaysLog[trn]?.[units]?.[focused.name];
+        const existingValue: string | number = getAllocation(trn, units)?.[focused.name];
         if (existingValue === undefined) {
             emptyResponse();
             return;
@@ -762,13 +765,36 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
 }
 
 async function startNewLog() {
-    todaysLog = {};
     submissionsForApproval.clear();
     executedHistory.clear();
     cleanupNLP();
-    currentLogMessage = await logChannel.send('*No allocations have been logged yet today. Check back here later!*');
-    console.log(`Started new log for ${new Date().toISOString().split('T')[0]}`);
-    logTransaction('📝 New log started').then();
+
+    const messageIds = await loadTodaysLog();
+    if (messageIds.length === 0) {
+        currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
+        await logTransaction('📝 New log started');
+    } else {
+        if (messageIds.length === 1) {
+            currentLogMessage = await logChannel.messages.fetch(messageIds[0]);
+        } else {
+            const messages = await Promise.all(messageIds.map(id => logChannel.messages.fetch(id)));
+            messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+            currentLogMessage = {
+                green: messages[0],
+                yellow: messages[1],
+                other: messages[2]
+            };
+        }
+        await logTransaction('📝 Existing log loaded');
+    }
+
+    const now = new Date();
+    const nextRun = new Date();
+    nextRun.setHours(NEW_DAY_HOUR, 0, 0, 0);
+    if (now.getHours() >= NEW_DAY_HOUR) {
+        nextRun.setDate(nextRun.getDate() + 1);
+    }
+    setTimeout(startNewLog, nextRun.getTime() - now.getTime());
 }
 
 client.once('clientReady', async () => {
@@ -918,16 +944,6 @@ client.once('clientReady', async () => {
     aiLogCommandId = commands.find(cmd => cmd.name === 'ai-log').id;
 
     await startNewLog();
-    const now = new Date();
-    const nextRun = new Date();
-    nextRun.setHours(3, 0, 0, 0);
-    if (now.getHours() >= 3) {
-        nextRun.setDate(nextRun.getDate() + 1);
-    }
-    setTimeout(async () => {
-        await startNewLog();
-        setInterval(startNewLog, 24 * 60 * 60 * 1000);
-    }, nextRun.getTime() - now.getTime());
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -939,12 +955,12 @@ client.on('interactionCreate', async (interaction) => {
         await handleAutocompleteInteraction(interaction);
     } else if (interaction.isMessageContextMenuCommand()) {
         if (interaction.commandName === 'Log with AI') {
-            await aiLogContextMenu(todaysLog, interaction);
+            await aiLogContextMenu(interaction);
         }
     } else if (interaction.isModalSubmit()) {
         const [action,uuid] = interaction.customId.split(':');
         if (action === 'clarify') {
-            await clarificationFormSubmission(uuid, interaction, todaysLog);
+            await clarificationFormSubmission(uuid, interaction);
         } else if (action === 'correction') {
             const submission = unconfirmedSubmissions.get(uuid);
             if (!('messages' in submission)) {
@@ -954,7 +970,7 @@ client.on('interactionCreate', async (interaction) => {
                 }).catch(console.error);
                 return;
             }
-            await nlpCorrectionFormSubmission(interaction, todaysLog, submission);
+            await nlpCorrectionFormSubmission(interaction, submission);
         }
     }
 });

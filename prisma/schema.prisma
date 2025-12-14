@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// A day on which allocations have been recorded
+model Day {
+  id Int @id @default(autoincrement())
+
+  /// The corresponding date
+  date DateTime @db.Date @unique
+
+  /// Discord messages containing parts of this day's allocations
+  messages    Message[]
+  /// Allocations recorded for this day
+  allocations Allocation[]
+}
+
+/// A Discord message containing parts of a day's allocations
+model Message {
+  /// The Discord message ID
+  id String @id
+
+  /// The day to which this message corresponds
+  day   Day @relation(fields: [dayId], references: [id])
+  /// The ID of the day to which this message corresponds
+  dayId Int
+}
+
+model Allocation {
+  id Int @id @default(autoincrement())
+
+  /// The day to which this allocation corresponds
+  day   Day @relation(fields: [dayId], references: [id])
+  /// The ID of the day to which this allocation corresponds
+  dayId Int
+
+  /// An identifier for the service this allocation is for
+  trn       String
+  /// The train units allocated, delimited by +
+  units     String
+  /// The person or thing that provided the allocation
+  sources   String
+  /// Any additional notes about the allocation
+  notes     String?
+  /// The index of this allocation among others for the same day and TRN, for when a service was operated by multiple sets of units
+  index     Int     @default(0)
+  /// Whether this allocation has been marked as withdrawn.
+  /// Doesn't necessarily mean the service is no longer operated or that the units have been withdrawn, since another allocation (with a higher `index`) may have replaced it.
+  withdrawn Boolean @default(false)
+
+  @@unique([dayId, trn, units])
+}

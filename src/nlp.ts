@@ -13,10 +13,11 @@ import {
     ChatInputCommandInteraction, TextInputComponentData, StringSelectMenuComponentData, ButtonInteraction,
     ModalSubmitInteraction, InteractionEditReplyOptions, Message,
 } from "discord.js";
-import {DailyLog, JSONModal, LogTransaction, NLPConversation, NlpSubmission} from "./types";
+import {JSONModal, LogTransaction, NLPConversation, NlpSubmission} from "./types";
 import {addUnconfirmedSubmission, searchMembers} from "./bot";
 import {getIdLoggers, listTransactions} from "./utils";
 import nlpSchema, {NlpLogEntry, NlpResponse} from "./nlp-schema";
+import {getTodaysLog} from "./db";
 
 config();
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
@@ -135,7 +136,6 @@ function getNextMidnightPT(now: Date): Date {
 async function runPrompt(
     interaction: CommandInteraction | ModalSubmitInteraction,
     messages: NLPConversation,
-    currentLog: DailyLog, // for context in confirmations
     deferReplyPromise: Promise<any> = interaction.deferReply({flags: ['Ephemeral']}).catch(getIdLoggers(interaction.id).errorWithId)
 ): Promise<void> {
     const {logWithId, warnWithId, errorWithId} = getIdLoggers(interaction.id);
@@ -277,7 +277,7 @@ async function runPrompt(
                         // The transactions are valid; show confirmation prompt
                         const lines = [
                             "**Do these changes look correct?**",
-                            listTransactions(transactions, currentLog)
+                            listTransactions(transactions)
                         ];
                         if (response.object.user_notes) {
                             lines.push(`**Notes about how the AI interpreted your query:** ${response.object.user_notes}`);
@@ -409,7 +409,6 @@ async function runPrompt(
                                     }))
                                 }
                             ],
-                            currentLog,
                             // Wait for editReplyPromise too, so that the "Searching for..." reply doesn't overwrite the final reply if the final reply finishes first
                             Promise.all([deferReplyPromise, editReplyPromise])
                         )
@@ -440,9 +439,9 @@ async function runPrompt(
     }
 }
 
-function formatInitialPrompt(prompt: string, user: User, currentLog: DailyLog): NLPConversation {
+function formatInitialPrompt(prompt: string, user: User): NLPConversation {
     const formattedLog: NlpLogEntry[] = [];
-    for (const [trn, unitsMap] of Object.entries(currentLog)) {
+    for (const [trn, unitsMap] of Object.entries(getTodaysLog())) {
         for (const [units, details] of Object.entries(unitsMap)) {
             formattedLog.push({
                 trn,
@@ -463,7 +462,7 @@ function formatInitialPrompt(prompt: string, user: User, currentLog: DailyLog): 
     }];
 }
 
-export async function aiLogCommand(currentLog: DailyLog, interaction: ChatInputCommandInteraction): Promise<void> {
+export async function aiLogCommand(interaction: ChatInputCommandInteraction): Promise<void> {
     if (MODELS.length === 0) {
         await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
         return;
@@ -471,10 +470,10 @@ export async function aiLogCommand(currentLog: DailyLog, interaction: ChatInputC
 
     const prompt = interaction.options.get('prompt', true).value as string;
     console.log(`/ai-log invoked by @${interaction.user.tag}`);
-    await runPrompt(interaction, formatInitialPrompt(prompt, interaction.user, currentLog), currentLog);
+    await runPrompt(interaction, formatInitialPrompt(prompt, interaction.user));
 }
 
-export async function aiLogContextMenu(currentLog: DailyLog, interaction: MessageContextMenuCommandInteraction) {
+export async function aiLogContextMenu(interaction: MessageContextMenuCommandInteraction) {
     if (MODELS.length === 0) {
         await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
         return;
@@ -482,7 +481,7 @@ export async function aiLogContextMenu(currentLog: DailyLog, interaction: Messag
 
     const prompt = interaction.targetMessage.content;
     console.log(`AI Log Context Menu invoked by @${interaction.user.tag} on message ${interaction.targetMessage.id}`);
-    await runPrompt(interaction, formatInitialPrompt(prompt, interaction.user, currentLog), currentLog);
+    await runPrompt(interaction, formatInitialPrompt(prompt, interaction.user));
 }
 
 export async function openClarificationForm(uuid: string, interaction: ButtonInteraction) {
@@ -554,7 +553,7 @@ export async function openClarificationForm(uuid: string, interaction: ButtonInt
     });
 }
 
-export async function clarificationFormSubmission(uuid: string, interaction: ModalSubmitInteraction, currentLog: DailyLog) {
+export async function clarificationFormSubmission(uuid: string, interaction: ModalSubmitInteraction) {
     const form = clarificationForms.get(uuid);
     if (!form) {
         await interaction.reply({
@@ -570,7 +569,7 @@ export async function clarificationFormSubmission(uuid: string, interaction: Mod
             role: 'user',
             content: JSON.stringify(interaction.fields.fields),
         }
-    ], currentLog);
+    ]);
 }
 
 export async function openNlpCorrectionForm(uuid: string, interaction: ButtonInteraction) {
@@ -593,7 +592,6 @@ export async function openNlpCorrectionForm(uuid: string, interaction: ButtonInt
 
 export async function nlpCorrectionFormSubmission(
     interaction: ModalSubmitInteraction,
-    currentLog: DailyLog,
     originalSubmission: NlpSubmission
 ) {
     const messages: NLPConversation = [
@@ -603,7 +601,7 @@ export async function nlpCorrectionFormSubmission(
             content: interaction.fields.getTextInputValue('correction')
         }
     ];
-    await runPrompt(interaction, messages, currentLog);
+    await runPrompt(interaction, messages);
 }
 
 export function cleanup() {

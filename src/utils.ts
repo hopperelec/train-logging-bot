@@ -1,6 +1,7 @@
 import {DailyLog, LogEntry, LogTransaction, TRN, TrnCategory} from "./types";
 import {normalizeUnits} from "./normalization";
 import {Snowflake} from "discord.js";
+import {getTodaysLog} from "./db";
 
 export function getIdLoggers(id: Snowflake) {
     function runWithUUID(func: (...args: string[]) => void, message: string, obj?: any) {
@@ -75,8 +76,8 @@ export function entryToString(entry: LogEntry) {
 
 export function listTransactions(
     transactions: LogTransaction[],
-    referenceLog: DailyLog,
-    prefixes: { add: string; remove: string } = { add: '🟩 ', remove: '🟥 ' }
+    prefixes: { add: string; remove: string } = { add: '🟩 ', remove: '🟥 ' },
+    referenceLog: DailyLog = getTodaysLog()
 ) {
     return transactions.flatMap(transaction => {
         const lines = []
@@ -92,4 +93,30 @@ export function listTransactions(
         }
         return lines;
     }).join('\n');
+}
+
+export function invertTransactions(
+    transactions: LogTransaction[],
+    referenceLog = getTodaysLog()
+): LogTransaction[] {
+    const inverse: LogTransaction[] = [];
+    // Process in reverse to maintain state validity
+    for (const tx of [...transactions].reverse()) {
+        const existingDetails = referenceLog[tx.trn]?.[tx.units];
+        if (tx.type === 'add' && !existingDetails) {
+            inverse.push({
+                type: 'remove',
+                trn: tx.trn,
+                units: tx.units
+            });
+        } else {
+            inverse.push({
+                type: 'add',
+                trn: tx.trn,
+                units: tx.units,
+                details: existingDetails
+            });
+        }
+    }
+    return inverse;
 }
