@@ -72,6 +72,10 @@ export async function addMessage(message: {id: string}) {
     });
 }
 
+export function getAllocationsForTRN(trn: string) {
+    return structuredClone(todaysLog[trn]);
+}
+
 export function getAllocation(trn: string, units: string) {
     return structuredClone(todaysLog[trn]?.[units]);
 }

@@ -1,4 +1,4 @@
-import {DailyLog, LogEntry, LogTransaction, TRN, TrnCategory} from "./types";
+import {DailyLog, LogEntry, LogEntryDetails, LogTransaction, TRN, TrnCategory} from "./types";
 import {normalizeUnits} from "./normalization";
 import {Snowflake} from "discord.js";
 import {getTodaysLog} from "./db";
@@ -62,16 +62,22 @@ export function dailyLogToString(dailyLog: DailyLog) {
         .join('\n');
 }
 
+export function detailsToString(details: LogEntryDetails) {
+    const parts = [`sources: ${details.sources.replaceAll('|','\\|')}`];
+    if (details.notes) {
+        parts.push(`notes: ${details.notes.replaceAll('|','\\|')}`);
+    }
+    if (details.withdrawn) {
+        parts.push(`withdrawn`);
+    }
+    if (details.index !== undefined) {
+        parts.push(`index: ${details.index}`);
+    }
+    return parts.join(' | ');
+}
 
 export function entryToString(entry: LogEntry) {
-    const detailsParts = [`source: ${entry.details.sources}`];
-    if (entry.details.notes) {
-        detailsParts.push(`notes: ${entry.details.notes}`);
-    }
-    if (entry.details.index !== undefined) {
-        detailsParts.push(`index: ${entry.details.index}`);
-    }
-    return `${entry.trn} - ${entry.details.withdrawn ? `~~${entry.units}~~` : entry.units} (${detailsParts.join(' | ')})`;
+    return `${entry.trn} - ${entry.units} (${detailsToString(entry.details)})`;
 }
 
 export function listTransactions(

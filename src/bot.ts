@@ -14,13 +14,14 @@ import {
     BaseMessageOptions,
     ThreadChannel,
     DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
-    ChatInputCommandInteraction, GuildMember,
+    ChatInputCommandInteraction, GuildMember, StringSelectMenuBuilder,
+    StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent,
 } from 'discord.js';
 import { config } from 'dotenv';
 import {normalizeTRN} from "./normalization";
 import {
     DailyLog,
-    ExecutedSubmission,
+    ExecutedSubmission, LogAddTransaction, LogTransaction,
     Submission,
     TrnCategory
 } from "./types";
@@ -31,8 +32,16 @@ import {
     clarificationFormSubmission, nlpCorrectionFormSubmission,
     openClarificationForm, openNlpCorrectionForm
 } from "./nlp";
-import {categorizeTRN, dailyLogToString, invertTransactions, listTransactions} from "./utils";
-import {addMessage, getAllocation, getTodaysLog, loadTodaysLog, removeMessage, runTransactions} from "./db";
+import {categorizeTRN, dailyLogToString, detailsToString, invertTransactions, listTransactions} from "./utils";
+import {
+    addMessage,
+    getAllocation,
+    getAllocationsForTRN,
+    getTodaysLog,
+    loadTodaysLog,
+    removeMessage,
+    runTransactions
+} from "./db";
 
 config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -93,6 +102,7 @@ let logAllocationCommandId: string;
 let aiLogCommandId: string;
 let currentLogMessage: Message | Partial<Record<TrnCategory, Message>>;
 const unconfirmedSubmissions = new Map<Snowflake, Submission>();
+const unconfirmedIntentSubmissions = new Map<Snowflake, LogAddTransaction>
 const submissionsForApproval = new Map<Snowflake, Submission>();
 const executedHistory = new Map<Snowflake, ExecutedSubmission>();
 
@@ -197,10 +207,10 @@ async function editOrSendLogMessage(message: Message, content: string | BaseMess
 
 async function updateLogMessage() {
     const categories: Record<string, DailyLog> = {};
-    for (const [trn, entry] of Object.entries(getTodaysLog())) {
+    for (const [trn, allocs] of Object.entries(getTodaysLog())) {
         const line = categorizeTRN(trn);
         if (!categories[line]) categories[line] = {};
-        categories[line][trn] = entry;
+        categories[line][trn] = allocs;
     }
 
     function renderSingleMessageCategory(category: TrnCategory) {
@@ -460,26 +470,27 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         const notes = interaction.options.get('notes')?.value as string | undefined;
         const index = interaction.options.get('index')?.value as number | undefined;
         const withdrawn = interaction.options.get('withdrawn')?.value as boolean | undefined;
+        const transaction: LogAddTransaction = {
+            type: 'add',
+            trn,
+            units,
+            details: { sources, notes, index, withdrawn }
+        };
         const submission: Submission = {
             user: interaction.user,
-            transactions: [{
-                type: 'add',
-                trn,
-                units,
-                details: { sources, notes, index, withdrawn }
-            }]
+            transactions: [transaction]
         };
 
-        const existingEntry = getAllocation(trn, units);
-        if (existingEntry) {
+        const existingAlloc = getAllocation(trn, units);
+        if (existingAlloc) {
             if (
-                existingEntry.sources === sources &&
-                existingEntry.notes === notes &&
-                existingEntry.index === index &&
-                !existingEntry.withdrawn === !withdrawn
+                existingAlloc.sources === sources &&
+                existingAlloc.notes === notes &&
+                existingAlloc.index === index &&
+                !existingAlloc.withdrawn === !withdrawn
             ) {
                 await interaction.reply({
-                    content: `❌ This entry is already in the log`,
+                    content: `❌ This allocation has already been logged with the exact same details.`,
                     flags: ["Ephemeral"]
                 });
                 return;
@@ -488,16 +499,16 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             console.log(`User @${interaction.user.tag} attempted to log an existing allocation with different details. Awaiting confirmation to update.`);
             addUnconfirmedSubmission(interaction.id, submission);
             await interaction.reply({
-                content: `⚠️ This allocation has already been logged but with different details. Do you want to update the existing entry?`,
+                content: '⚠️ This allocation has already been logged but with different details. Do you want to update the existing allocation?',
                 embeds: [
                     new EmbedBuilder()
-                        .setTitle('Existing entry details')
+                        .setTitle('Existing details')
                         .setColor(0xffcc00)
                         .setFields(
-                            { name: 'Sources', value: existingEntry.sources },
-                            { name: 'Notes', value: existingEntry.notes || '*None*' },
-                            { name: 'Index', value: existingEntry.index !== undefined ? existingEntry.index.toString() : '*None*' },
-                            { name: 'Withdrawn', value: existingEntry.withdrawn ? 'Yes' : 'No' }
+                            { name: 'Sources', value: existingAlloc.sources },
+                            { name: 'Notes', value: existingAlloc.notes || '*None*' },
+                            { name: 'Index', value: existingAlloc.index !== undefined ? existingAlloc.index.toString() : '*None*' },
+                            { name: 'Withdrawn', value: existingAlloc.withdrawn ? 'Yes' : 'No' }
                         )
                 ],
                 components: [
@@ -512,19 +523,79 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
                 ],
                 flags: ["Ephemeral"],
             });
-
-        } else {
-            const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
-            const result = await submitSubmission(submission);
-            await deferReplyPromise;
-            interaction.editReply(result).catch(console.error);
+            return;
         }
+
+        const existingAllocs = getAllocationsForTRN(trn);
+        if (existingAllocs && Object.values(existingAllocs).some(alloc => (alloc.index || 0) === (index || 0))) {
+            console.log(`User @${interaction.user.tag} attempted to log an allocation with a duplicate index for TRN ${trn}. Awaiting confirmation on intent.`);
+            unconfirmedIntentSubmissions.set(interaction.id, transaction);
+            await interaction.reply({
+                content: '⚠️ An allocation for this TRN already exists with the same index. You may proceed if this was intentional, but consider one of the options provided in the dropdown below first.',
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('Existing allocations for this TRN')
+                        .setColor(0xffcc00)
+                        .setDescription(
+                            Object.entries(existingAllocs)
+                                .map(([units, details]) => `**${units}** — ${detailsToString(details)}`)
+                                .join('\n')
+                        )
+                ],
+                components: [
+                    new ActionRowBuilder<StringSelectMenuBuilder>()
+                        .addComponents(
+                            new StringSelectMenuBuilder()
+                                .setCustomId(`duplicate-intent:${interaction.id}`)
+                                .setPlaceholder('Select an option')
+                                .addOptions(
+                                    {
+                                        label: 'Keep duplicate index',
+                                        description: "Choose this if existing allocations are still valid but there isn't a meaningful order to them",
+                                        value: 'keep-duplicate-index',
+                                    },
+                                    {
+                                        label: 'Remove existing allocation(s)',
+                                        description: 'Choose this if your new allocation is a correction that replaces the existing ones',
+                                        value: 'remove-existing-allocs',
+                                    },
+                                    {
+                                        label: 'Assign a new index for me',
+                                        description: 'Choose this if your new allocation logically comes after the existing ones',
+                                        value: 'assign',
+                                    },
+                                    {
+                                        label: 'Assign a new index and withdraw existing allocation(s)',
+                                        description: 'Choose this if your new allocation is a real-world replacement for the existing ones',
+                                        value: 'assign-and-withdraw',
+                                    }
+                                )
+                        ),
+                    new ActionRowBuilder<ButtonBuilder>()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`confirm-update:${interaction.id}`)
+                                .setLabel('Confirm')
+                                .setStyle(ButtonStyle.Primary)
+                                .setEmoji('✏️')
+                                .setDisabled(true)
+                        )
+                ],
+                flags: ["Ephemeral"]
+            });
+            return;
+        }
+
+        const deferReplyPromise = interaction.deferReply({ flags: ["Ephemeral"] }).catch(console.error);
+        const result = await submitSubmission(submission);
+        await deferReplyPromise;
+        interaction.editReply(result).catch(console.error);
 
     } else if (interaction.commandName === 'remove-allocation') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         const units = interaction.options.get('units', true).value as string;
-        const existingEntry = getAllocation(trn, units);
-        if (!existingEntry) {
+        const existingAlloc = getAllocation(trn, units);
+        if (!existingAlloc) {
             await interaction.reply({
                 content: `❌ No such allocation is logged for today.`,
                 flags: ["Ephemeral"]
@@ -545,15 +616,9 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
 
     } else if (interaction.commandName === 'search-trn') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
-        const entry = getTodaysLog()[trn];
-        if (entry) {
-            await interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle(`🔍 Search results for TRN "${trn}"`)
-                        .setDescription(dailyLogToString({ [trn]: entry }))
-                ]
-            });
+        const existingAllocs = getAllocationsForTRN(trn);
+        if (existingAllocs) {
+            await interaction.reply(dailyLogToString({ [trn]: existingAllocs }));
         } else {
             await interaction.reply(`❌ Nothing has been logged for TRN "${trn}" today.`);
         }
@@ -612,22 +677,23 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
         if (action === 'confirm-update') {
             const submission = unconfirmedSubmissions.get(uuid);
-            if (submission) {
-                const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
-                const result = await submitSubmission(submission);
-                await deferUpdatePromise;
-                interaction.editReply({
-                    content: result,
-                    embeds: [],
-                    components: []
-                }).catch(console.error);
-                unconfirmedSubmissions.delete(uuid);
-            } else {
+            if (!submission) {
                 interaction.reply({
                     content: '❌ Your submission has expired. Please try again.',
                     flags: ["Ephemeral"]
                 }).catch(console.error);
+                return;
             }
+            const deferUpdatePromise = interaction.deferUpdate().catch(console.error);
+            const result = await submitSubmission(submission);
+            await deferUpdatePromise;
+            interaction.editReply({
+                content: result,
+                embeds: [],
+                components: []
+            }).catch(console.error);
+            unconfirmedSubmissions.delete(uuid);
+            unconfirmedIntentSubmissions.delete(uuid);
             return;
         }
 
@@ -706,6 +772,84 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
     }
 
     console.warn(`Unknown button interaction: ${interaction.customId}`);
+}
+
+async function handleIntentSelectionInteraction(interaction: StringSelectMenuInteraction) {
+    const [action, uuid] = interaction.customId.split(':');
+    if (action !== 'duplicate-intent') {
+        console.warn(`Unknown select menu interaction: ${interaction.customId}`);
+        return;
+    }
+
+    const transaction = unconfirmedIntentSubmissions.get(uuid);
+    if (!transaction) {
+        interaction.reply({
+            content: '❌ Your submission has expired. Please try again.',
+            flags: ["Ephemeral"]
+        }).catch(console.error);
+        return;
+    }
+    const transactionCopy = structuredClone(transaction);
+    const transactions: LogTransaction[] = [transactionCopy];
+    const existingAllocs = getAllocationsForTRN(transaction.trn);
+
+    const selected = interaction.values[0];
+    if (selected !== 'keep-duplicate-index') {
+        if (selected === 'remove-existing-allocs' || selected === 'assign-and-withdraw') {
+            const unitsWithDuplicateIndex = Object.entries(existingAllocs)
+                .filter(([, details]) => (details.index || 0) === (transaction.details.index || 0))
+                .map(([units]) => units);
+            for (const units of unitsWithDuplicateIndex) {
+                if (selected === 'remove-existing-allocs') {
+                    transactions.push({
+                        type: 'remove',
+                        trn: transaction.trn,
+                        units
+                    });
+                } else {
+                    transactions.push({
+                        type: 'add',
+                        trn: transaction.trn,
+                        units,
+                        details: {
+                            ...existingAllocs[units],
+                            withdrawn: true
+                        }
+                    });
+                }
+            }
+        }
+        if (selected === 'assign' || selected === 'assign-and-withdraw') {
+            transactionCopy.details.index = Math.max(0, ...Object.values(existingAllocs).map(details => details.index || 0)) + 1;
+        }
+    }
+
+    unconfirmedSubmissions.set(uuid, {
+        user: interaction.user,
+        transactions
+    });
+    const confirmButton = ButtonBuilder.from((interaction.message.components[1] as ActionRow<MessageActionRowComponent>).components[0] as ButtonComponent);
+    confirmButton.setDisabled(false);
+    await interaction.update({
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('Existing allocations for this TRN')
+                .setColor(0xffcc00)
+                .setDescription(
+                    Object.entries(existingAllocs)
+                        .map(([units, details]) => `**${units}** — ${detailsToString(details)}`)
+                        .join('\n')
+                ),
+            new EmbedBuilder()
+                .setTitle('Changes that will be made')
+                .setColor(0x00ccff)
+                .setDescription(listTransactions(transactions))
+        ],
+        components: [
+            interaction.message.components[0],
+            new ActionRowBuilder<ButtonBuilder>().addComponents(confirmButton),
+        ]
+    }).catch(console.error);
 }
 
 async function handleAutocompleteInteraction(interaction: AutocompleteInteraction) {
@@ -951,6 +1095,8 @@ client.on('interactionCreate', async (interaction) => {
         await handleCommandInteraction(interaction);
     } else if (interaction.isButton()) {
         await handleButtonInteraction(interaction);
+    } else if (interaction.isStringSelectMenu()) {
+        await handleIntentSelectionInteraction(interaction);
     } else if (interaction.isAutocomplete()) {
         await handleAutocompleteInteraction(interaction);
     } else if (interaction.isMessageContextMenuCommand()) {
