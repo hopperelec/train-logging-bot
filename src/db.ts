@@ -82,7 +82,7 @@ export async function runTransactions(transactions: LogTransaction[]) {
         prisma.allocation.deleteMany({
             where: {
                 dayId: dayId,
-                AND: transactions.map(allocation => ({
+                OR: transactions.map(allocation => ({
                     trn: allocation.trn,
                     units: allocation.units,
                 })),
