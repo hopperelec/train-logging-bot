@@ -477,7 +477,7 @@ export async function aiLogContextMenu(interaction: MessageContextMenuCommandInt
 
     const prompt = interaction.targetMessage.content;
     console.log(`AI Log Context Menu invoked by @${interaction.user.tag} on message ${interaction.targetMessage.id}`);
-    await runPrompt(interaction, formatInitialPrompt(prompt, interaction.user));
+    await runPrompt(interaction, formatInitialPrompt(prompt, interaction.targetMessage.author));
 }
 
 export async function openClarificationForm(uuid: string, interaction: ButtonInteraction) {
