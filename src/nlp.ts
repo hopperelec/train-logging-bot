@@ -185,13 +185,9 @@ async function runPrompt(
                     minuteDisabledIndex = i;
                     minuteExpiry = Math.ceil(Date.now() / 60000) * 60000;
                 }
-                continue;
+            } else {
+                errorWithId(`Exception with model ${modelName}`, error);
             }
-
-            errorWithId(`Exception with model ${modelName}`, error);
-            await deferReplyPromise;
-            await interaction.editReply('Sorry, there was an error processing your request. Please try again later.').catch(errorWithId);
-            return;
         }
     }
     await deferReplyPromise;
