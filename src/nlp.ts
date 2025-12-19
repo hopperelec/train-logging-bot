@@ -158,11 +158,6 @@ async function runPrompt(
                 system: systemPrompt,
                 messages,
                 temperature: 0,
-                providerOptions: {
-                    groq: {
-                        reasoningEffort: 'high'
-                    }
-                }
             });
             if (i === minuteDisabledIndex) {
                 minuteDisabledIndex = -1;
