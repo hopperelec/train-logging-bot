@@ -40,7 +40,7 @@ import {
     getTodaysLog,
     loadTodaysLog,
     removeMessage,
-    runTransactions
+    runTransactions, searchHistoricAllocations
 } from "./db";
 
 config();
@@ -657,6 +657,89 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             });
         }
 
+    } else if (interaction.commandName === 'search-historic-allocations') {
+        const dateFromStr = interaction.options.get('date-from')?.value as string | undefined;
+        const dateToStr = interaction.options.get('date-to')?.value as string | undefined;
+        const limit = interaction.options.get('limit')?.value as number | undefined;
+        const trn = interaction.options.get('trn')?.value as string | undefined;
+        const unitsQuery = interaction.options.get('units')?.value as string | undefined;
+        const sourcesQuery = interaction.options.get('sources')?.value as string | undefined;
+        const notes = interaction.options.get('notes')?.value as string | undefined;
+        const withdrawn = interaction.options.get('withdrawn')?.value as boolean | undefined;
+
+        let dateFrom: Date | undefined;
+        if (dateFromStr) {
+            dateFrom = new Date(dateFromStr);
+            if (isNaN(dateFrom.getTime())) {
+                await interaction.reply('❌ Invalid date format for "date-from". Please use YYYY-MM-DD format.');
+                return;
+            }
+            dateFrom.setHours(0, 0, 0, 0);
+        }
+        let dateTo: Date | undefined;
+        if (dateToStr) {
+            dateTo = new Date(dateToStr);
+            if (isNaN(dateTo.getTime())) {
+                await interaction.reply('❌ Invalid date format for "date-to". Please use YYYY-MM-DD format.');
+                return;
+            }
+            dateTo.setHours(23, 59, 59, 999);
+        }
+
+        const deferReplyPromise = interaction.deferReply().catch(console.error);
+        const results = await searchHistoricAllocations({
+            dateFrom,
+            dateTo,
+            limit,
+            trn,
+            units: unitsQuery?.split('+').map(u => u.trim()),
+            sources: sourcesQuery?.split(',').map(s => s.trim()),
+            notes,
+            withdrawn,
+        });
+        if (results.length === 0) {
+            await interaction.reply('❌ No matching allocations were found in the historic log.');
+            return;
+        }
+
+        const headers = ['Date', 'TRN', 'Units', 'Sources', 'Notes', 'Withdrawn', 'Index'];
+        const resultRows = results.map(r => [
+            r.date === null || isNaN(r.date.getTime())
+                ? 'INVALID DATE'
+                : r.date.toISOString().split('T')[0],
+            r.trn,
+            r.units,
+            r.sources,
+            r.notes || '',
+            r.withdrawn ? 'Withdrawn' : '',
+            r.index === null ? '' : r.index.toString()
+        ]);
+        const allRows = [headers, ...resultRows];
+        const columnWidths = headers.map((_, colIndex) => Math.max(...allRows.map(row => row[colIndex].length)));
+        const table = [
+            headers.map((header, i) => header.padEnd(columnWidths[i])).join(' | '),
+            columnWidths.map(width => '-'.repeat(width)).join('-|-'),
+            ...resultRows.map(row =>
+                row.map((cell, i) =>
+                    replaceDiscordFeaturesWithNames(cell).padEnd(columnWidths[i])
+                ).join(' | ')
+            )
+        ].join('\n');
+
+        await deferReplyPromise;
+        const messageContent = `📚 Found ${results.length} matching allocation(s) in the historic log.\n\`\`\`\n${table}\n\`\`\``;
+        if (messageContent.length <= CHARACTER_LIMIT) {
+            await interaction.editReply(messageContent);
+            return;
+        }
+        await interaction.editReply({
+            content: `📚 Found ${results.length} matching allocation(s) in the historic log. The results are too long to display here, so they have been attached as a file.`,
+            files: [{
+                name: 'search-results.txt',
+                attachment: Buffer.from(table)
+            }]
+        });
+
     } else if (interaction.commandName === 'usage') {
         await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to submit changes to the log. The recommended way is </ai-log:${aiLogCommandId}>, which allows you to describe an allocation or some changes to make in any format you like and have an AI make the changes for you. Alternatively, you can manually add/edit an allocation using </log-allocation:${logAllocationCommandId}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Check <#1429595223939612823> for more details.`);
     }
@@ -1039,7 +1122,6 @@ client.once('clientReady', async () => {
                     type: 3, // string
                     description: 'The TRN of the allocation to remove',
                     required: true,
-                    maxLength: 32,
                     autocomplete: true
                 },
                 {
@@ -1047,7 +1129,6 @@ client.once('clientReady', async () => {
                     type: 3, // string
                     description: 'The units of the allocation to remove',
                     required: true,
-                    maxLength: 64,
                     autocomplete: true
                 }
             ]
@@ -1061,7 +1142,6 @@ client.once('clientReady', async () => {
                     type: 3, // string
                     description: 'The TRN of the allocations to look up (e.g., "T101")',
                     required: true,
-                    maxLength: 32,
                     autocomplete: true
                 }
             ]
@@ -1073,9 +1153,54 @@ client.once('clientReady', async () => {
                 {
                     name: 'query',
                     type: 3, // string
-                    description: 'A unit or part of a unit to search for (e.g., "4073")',
+                    description: 'The unit to search for (e.g., "4073")',
                     required: true,
-                    maxLength: 16
+                }
+            ]
+        },
+        {
+            name: 'search-historic-allocations',
+            description: 'Search all allocations in the database (not just today) using a variety of filters.',
+            options: [
+                {
+                    name: 'date-from',
+                    type: 3, // string
+                    description: 'Filter from this date (inclusive) — format YYYY-MM-DD',
+                },
+                {
+                    name: 'date-to',
+                    type: 3, // string
+                    description: 'Filter up to this date (inclusive) — format YYYY-MM-DD',
+                },
+                {
+                    name: 'limit',
+                    type: 4, // integer
+                    description: 'Maximum number of results to list. If only `date-to` is specified, this applies in reverse.',
+                },
+                {
+                    name: 'trn',
+                    type: 3, // string
+                    description: 'Filter by TRN (e.g., "T101")',
+                },
+                {
+                    name: 'units',
+                    type: 3, // string
+                    description: 'Filter by a list of units separated by `+` (e.g., "4073+4081" also "4081+4073")',
+                },
+                {
+                    name: 'sources',
+                    type: 3, // string
+                    description: 'Filter by a list of sources separated by `,` (e.g., "@User1,@User2" also matches "@User2,@User1")',
+                },
+                {
+                    name: 'notes',
+                    type: 3, // string
+                    description: 'Filter by notes (e.g., "testing")',
+                },
+                {
+                    name: 'withdrawn',
+                    type: 5, // boolean
+                    description: 'Filter by whether the allocation was marked as withdrawn or not',
                 }
             ]
         },

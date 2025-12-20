@@ -80,6 +80,69 @@ export function getAllocation(trn: string, units: string) {
     return structuredClone(todaysLog[trn]?.[units]);
 }
 
+export async function searchHistoricAllocations(filters: {
+    dateFrom?: Date,
+    dateTo?: Date,
+    limit?: number,
+    trn?: string,
+    units?: string[],
+    sources?: string[],
+    notes?: string,
+    withdrawn?: boolean,
+}): Promise<{
+    date: Date,
+    trn: string,
+    units: string,
+    sources: string,
+    notes: string | null,
+    withdrawn: boolean,
+    index: number | null,
+}[]> {
+    const results = await prisma.allocation.findMany({
+        select: {
+            day: {
+                select: { date: true },
+            },
+            trn: true,
+            units: true,
+            sources: true,
+            notes: true,
+            withdrawn: true,
+            index: true,
+        },
+        where: {
+            day: {
+                date: {
+                    gte: filters.dateFrom,
+                    lte: filters.dateTo,
+                },
+            },
+            trn: { contains: filters.trn },
+            AND: [
+                ...(filters.units?.map(unit => ({
+                    units: { contains: unit },
+                })) || []),
+                ...(filters.sources?.map(source => ({
+                    sources: { contains: source },
+                })) || []),
+            ],
+            notes: filters.notes ? { contains: filters.notes } : undefined,
+            withdrawn: filters.withdrawn,
+        },
+        orderBy: {
+            day: {
+                date: filters.dateTo && !filters.dateFrom ? 'desc' : 'asc',
+            },
+        },
+        take: filters.limit,
+    });
+    // Flatten the day relation
+    return results.map(r => ({
+        ...r,
+        date: r.day.date,
+    }));
+}
+
 export async function runTransactions(transactions: LogTransaction[]) {
     await prisma.$transaction([
         // Delete *all* affected allocations, so that additions will replace any existing ones
