@@ -14,7 +14,7 @@ import {
     ModalSubmitInteraction, InteractionEditReplyOptions, Message,
 } from "discord.js";
 import {JSONModal, LogTransaction, NLPConversation, NlpSubmission} from "./types";
-import {addUnconfirmedSubmission, searchMembers} from "./bot";
+import {addUnconfirmedSubmission, CONTENT_CHARACTER_LIMIT, searchMembers} from "./bot";
 import {getIdLoggers, listTransactions} from "./utils";
 import nlpSchema, {NlpLogEntry, NlpResponse} from "./nlp-schema";
 import {getTodaysLog} from "./db";
@@ -194,12 +194,36 @@ async function runPrompt(
     }
 
     async function replyWithModel(options: string | InteractionEditReplyOptions): Promise<void | Message> {
+        let rawContent: string;
         if (typeof options === 'string') {
             options += `\n-# Model used: ${modelName}`;
+            rawContent = options;
         } else {
             options.content += `\n-# Model used: ${modelName}`;
+            rawContent = options.content;
         }
-        return interaction.editReply(options).catch(errorWithId);
+        return interaction.editReply(
+            rawContent.length <= CONTENT_CHARACTER_LIMIT
+                ? options
+                : (
+                    typeof options === 'string'
+                        ? {
+                            content: 'The response is too long to display here, so it has been attached as a file.',
+                            files: [{
+                                attachment: Buffer.from(rawContent, 'utf-8'),
+                                name: `Response - ${interaction.id}.txt`
+                            }]
+                        }
+                        : {
+                            ...options,
+                            content: 'The response is too long to display here, so it has been attached as a file.',
+                            files: [...(options.files || []), {
+                                attachment: Buffer.from(rawContent, 'utf-8'),
+                                name: `Response - ${interaction.id}.txt`
+                            }]
+                        }
+                )
+        ).catch(errorWithId);
     }
 
     try {

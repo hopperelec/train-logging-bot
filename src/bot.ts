@@ -72,7 +72,8 @@ if (!CONTRIBUTOR_GUILD_ID) {
     console.warn('Missing CONTRIBUTOR_GUILD_ID and CONTRIBUTOR_ROLE_ID environment variables. Anyone will be able to log entries.');
 }
 
-const CHARACTER_LIMIT = 2000; // Discord message character limit
+export const CONTENT_CHARACTER_LIMIT = 2000; // Discord message content character limit
+export const EMBED_DESCRIPTION_CHARACTER_LIMIT = 4096; // Discord embed description character limit
 export const NEW_DAY_HOUR = 3;
 
 const CATEGORY_HEADERS = {
@@ -223,7 +224,7 @@ async function updateLogMessage() {
         const entries = categories[category];
         if (!entries || Object.keys(entries).length === 0) return renderEmptyCategory(category);
         const content = `${CATEGORY_HEADERS[category]}\n${dailyLogToString(entries)}`;
-        if (content.length > CHARACTER_LIMIT) {
+        if (content.length > CONTENT_CHARACTER_LIMIT) {
             return {
                 content: `${CATEGORY_HEADERS[category]}\nToo many ${CATEGORY_DISPLAY_NAMES[category]} have been logged today to fit in a single message, so they have been attached as a file.`,
                 files: [{
@@ -246,7 +247,7 @@ async function updateLogMessage() {
             }
         }
 
-        if (content.length > CHARACTER_LIMIT) {
+        if (content.length > CONTENT_CHARACTER_LIMIT) {
             currentLogMessage = {
                 green: await editOrSendLogMessage(currentLogMessage, renderMultipleMessageCategory('green')),
                 yellow: await sendLogMessage(renderMultipleMessageCategory('yellow')),
@@ -296,13 +297,21 @@ async function submitSubmission(submission: Submission): Promise<string> {
         const embed = new EmbedBuilder()
             .setTitle('Train log amended')
             .setColor(0x00ff00)
-            .setDescription(listedTransactionsEmojis)
+            .setDescription(
+                listedTransactionsEmojis.length <= EMBED_DESCRIPTION_CHARACTER_LIMIT
+                    ? listedTransactionsEmojis
+                    : 'The list of changes is too long to display here, so they have been attached as a file.'
+            )
             .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() });
         if ('summary' in submission && submission.summary) {
             embed.addFields({ name: 'Summary', value: submission.summary });
         }
         const message = await logTransaction({
             embeds: [embed],
+            files: listedTransactionsEmojis.length > EMBED_DESCRIPTION_CHARACTER_LIMIT ? [{
+                name: `Submission - ${new Date().toISOString().split('T')[0]} - ${submission.user.tag}.txt`,
+                attachment: Buffer.from(replaceDiscordFeaturesWithNames(listedTransactionsEmojis))
+            }] : [],
             components: [
                 new ActionRowBuilder<ButtonBuilder>()
                     .addComponents(
@@ -325,16 +334,26 @@ async function submitSubmission(submission: Submission): Promise<string> {
     }
     if (!approvalChannel) return '❌ Only contributors can update the log right now.';
 
+    const listedTransactions = listTransactions(submission.transactions);
+
     const embed = new EmbedBuilder()
         .setTitle('Train gen submission')
         .setColor(0xff9900)
-        .setDescription(listTransactions(submission.transactions))
+        .setDescription(
+            listedTransactions.length <= EMBED_DESCRIPTION_CHARACTER_LIMIT
+                ? listedTransactions
+                : 'The list of changes is too long to display here, so they have been attached as a file.'
+        )
         .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() });
     if ('summary' in submission && submission.summary) {
         embed.addFields({ name: 'Summary', value: submission.summary });
     }
     const message = await approvalChannel.send({
         embeds: [embed],
+        files: listedTransactions.length > EMBED_DESCRIPTION_CHARACTER_LIMIT ? [{
+            name: `Submission - ${new Date().toISOString().split('T')[0]} - ${submission.user.tag}.txt`,
+            attachment: Buffer.from(replaceDiscordFeaturesWithNames(listedTransactions))
+        }] : [],
         components: [
             new ActionRowBuilder<ButtonBuilder>()
                 .addComponents(
@@ -379,7 +398,11 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
     const embed = new EmbedBuilder()
         .setTitle('Train log amended')
         .setColor(0x00ff00)
-        .setDescription(listedTransactions)
+        .setDescription(
+            listedTransactions.length <= EMBED_DESCRIPTION_CHARACTER_LIMIT
+                ? listedTransactions
+                : 'The list of changes is too long to display here, so they have been attached as a file.'
+        )
         .setFooter({
             text: `Submission by ${submission.user.tag}, approved by ${interaction.user.tag}`,
             iconURL: submission.user.displayAvatarURL()
@@ -389,7 +412,11 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
     }
     logTransaction({
         content: `✅ ${interaction.message.url} (submission by <@${submission.user.id}>) approved by <@${interaction.user.id}>`,
-        embeds: [embed]
+        embeds: [embed],
+        files: listedTransactions.length > EMBED_DESCRIPTION_CHARACTER_LIMIT ? [{
+            name: `Submission - ${new Date().toISOString().split('T')[0]} - ${submission.user.tag}.txt`,
+            attachment: Buffer.from(replaceDiscordFeaturesWithNames(listedTransactions))
+        }] : [],
     }).then();
 
     return {
@@ -639,7 +666,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             return;
         }
         const description = dailyLogToString(results);
-        if (description.length <= CHARACTER_LIMIT) {
+        if (description.length <= CONTENT_CHARACTER_LIMIT) {
             await interaction.reply({
                 embeds: [
                     new EmbedBuilder()
@@ -689,7 +716,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
                 return `${trn} - ${trnDescription}`;
             })
             .join('\n');
-        if (description.length <= CHARACTER_LIMIT) {
+        if (description.length <= CONTENT_CHARACTER_LIMIT) {
             await interaction.reply({
                 embeds: [
                     new EmbedBuilder()
@@ -778,7 +805,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
 
         await deferReplyPromise;
         const messageContent = `📚 Found ${results.length} matching allocation(s) in the historic log.\n\`\`\`\n${table}\n\`\`\``;
-        if (messageContent.length <= CHARACTER_LIMIT) {
+        if (messageContent.length <= CONTENT_CHARACTER_LIMIT) {
             await interaction.editReply(messageContent);
             return;
         }
