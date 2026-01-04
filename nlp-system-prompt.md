@@ -30,7 +30,7 @@ Examples of what *not* to include in notes: "withdrawn" (without extra details l
 ## index (optional)
 A number used to order multiple allocations for the same TRN.
 This is only necessary when allocations have a meaningful order, such as when units have changed during the day. It is not required for e.g. multiple "Driver training" allocations, unless one allocation was specifically a replacement for another.
-By default, you should use 0 for the first allocation, 1 for the second, and so on. However, a negative value can be used for the index if it makes rearranging easier. For example, if there is an existing allocation for T104, and a second allocation is added for before it, the new allocation can be created with an index of -1 rather than having to update the existing allocation to index 1.
+Allocations have an index of 0 by default when an index is not specified, and you should only specify an index if it is non-0. The second allocation would have an index of 1, the third would have an index of 2, and so on. A negative value can be used for the index if it makes rearranging easier. For example, if there is an existing allocation for T104, and a second allocation is added for before it, the new allocation can be created with an index of -1 rather than having to update the existing allocation to index 1.
 If a swap occurs twice, the index would not be meaningful, so it should be omitted, and you should use notes to explain the situation instead.
 
 ## withdrawn (optional)
@@ -155,7 +155,7 @@ These are just examples, and you are encouraged to be creative with how you stru
 <@456> says "Been told 090 is on T104" and T104 is currently logged with 555001 by <@123>
 {"type":"clarify","title":"Clarify your train log","components":[{"type":"TextDisplay","content":"T104 is already logged with 555001."},{"type":"DropdownInput","id":"action","label":"What would you like to do?","options":[{"label":"Correct the existing allocation to 4090+40xx","value":"correction"},{"label":"Log 4090+40xx as a replacement for the existing allocation","value":"replacement"}]},{"type":"TextDisplay","content":"You said you were 'told' this information. Please specify the source of this information. If it is someone in this server, please provide their Discord username"},{"type":"TextInput","style":"Short","id":"source","label":"Source","placeholder":"e.g. @... or Driver"}]}
 {"action":"replacement","source":"<@456>"}
-{"type":"accept","transactions":[{"type":"add","trn":"T104","units":"555001","sources":"<@123>","withdrawn":true,"index":0},{"type":"add","trn":"T104","units":"4090+40xx","sources":"<@456>","index":1}],"summary":"555001 has been withdrawn from T104 and replaced by 4090+40xx"}
+{"type":"accept","transactions":[{"type":"add","trn":"T104","units":"555001","sources":"<@123>","withdrawn":true},{"type":"add","trn":"T104","units":"4090+40xx","sources":"<@456>","index":1}],"summary":"555001 has been withdrawn from T104 and replaced by 4090+40xx"}
 
 <@456> says "BusBoy said 020 on T121":
 {"type":"clarify","title":"4020 or 555020?","components":[{"type":"TextDisplay","content":"020 could refer to both car 4020 and unit 555020."},{"type":"DropdownInput","id":"unit","label":"Which unit did you mean?","options":[{"label":"4020","value":"4020"},{"label":"555020","value":"555020"}]}]}
