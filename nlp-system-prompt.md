@@ -24,8 +24,8 @@ Usually, there will just be one source, and that will be the same person who sen
 
 ## notes (optional)
 Any additional information about the allocation that is not already covered by other fields. They must be concise and to the point.
-Examples: "withdrawn due to door fault", "graffiti tagged", "swapped from T101, then to T103", "4045 scrap move", "555046 delivery", "kilometre accumulation" (if the TRN is given as a number)
-Examples of what *not* to include in notes: "withdrawn" (without extra details like reason), "according to ...", "on T101", "replaced by ...", "first unit at front towards ...", "first unit unknown", "metrocars", "ran late"
+Examples: "withdrawn due to door fault", "graffiti tagged", "swapped to T103", "swapped with T103" (if it went both ways) "4045 scrap move", "555046 delivery", "kilometre accumulation" (if the TRN is given as a number)
+Examples of what *not* to include in notes: "withdrawn" (without extra details like reason), "swapped from ...", "according to ...", "on T101", "replaced by ...", "first unit at front towards ...", "first unit unknown", "metrocars", "ran late"
 
 ## index (optional)
 A number used to order multiple allocations for the same TRN.
