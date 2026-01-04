@@ -18,7 +18,7 @@ import {
     StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent,
 } from 'discord.js';
 import { config } from 'dotenv';
-import {normalizeTRN} from "./normalization";
+import {normalizeTRN, normalizeUnits} from "./normalization";
 import {
     DailyLog,
     ExecutedSubmission, LogAddTransaction, LogTransaction,
@@ -657,6 +657,56 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             });
         }
 
+    } else if (interaction.commandName === 'list-current-allocations') {
+        const todaysLog = getTodaysLog();
+        if (Object.keys(todaysLog).length === 0) {
+            await interaction.reply('❌ No allocations have been logged yet today.');
+            return;
+        }
+        const currentAllocations = Object.fromEntries(
+            Object.entries(todaysLog).map(([trn, allocs]) => [
+                trn,
+                Object.fromEntries(
+                    Object.entries(allocs).filter(([_, details]) => !details.withdrawn)
+                )
+            ]).filter(([_, allocs]) => Object.keys(allocs).length > 0)
+        ) as DailyLog;
+        if (Object.keys(currentAllocations).length === 0) {
+            await interaction.reply('❌ Everything logged today has been marked as withdrawn.');
+            return;
+        }
+        const description = Object.entries(currentAllocations)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([trn, allocations]) => {
+                const trnDescription = Object.entries(allocations)
+                    .sort(([,a], [,b]) => (a.index ?? 0) - (b.index ?? 0))
+                    .map(([units, details]) => {
+                        units = normalizeUnits(units);
+                        if (details.notes) units += ` (${details.notes})`;
+                        return units;
+                    })
+                    .join('; ');
+                return `${trn} - ${trnDescription}`;
+            })
+            .join('\n');
+        if (description.length <= CHARACTER_LIMIT) {
+            await interaction.reply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('📋 Current allocations')
+                        .setDescription(description)
+                ]
+            });
+        } else {
+            await interaction.reply({
+                content: `📋 Too many non-withdrawn allocations have been logged today to display here, so they have been attached as a file.`,
+                files: [{
+                    name: `Current allocations - ${new Date().toISOString().split('T')[0]}.txt`,
+                    attachment: Buffer.from(replaceDiscordFeaturesWithNames(description))
+                }]
+            })
+        }
+
     } else if (interaction.commandName === 'search-historic-allocations') {
         const dateFromStr = interaction.options.get('date-from')?.value as string | undefined;
         const dateToStr = interaction.options.get('date-to')?.value as string | undefined;
@@ -1001,16 +1051,27 @@ async function startNewLog() {
         currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
         await logTransaction('📝 New log started');
     } else {
-        if (messageIds.length === 1) {
-            currentLogMessage = await logChannel.messages.fetch(messageIds[0]);
-        } else {
-            const messages = await Promise.all(messageIds.map(id => logChannel.messages.fetch(id)));
-            messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-            currentLogMessage = {
-                green: messages[0],
-                yellow: messages[1],
-                other: messages[2]
-            };
+        try {
+            if (messageIds.length === 1) {
+                currentLogMessage = await logChannel.messages.fetch(messageIds[0]);
+            } else {
+                const messages = await Promise.all(messageIds.map(id => logChannel.messages.fetch(id)));
+                messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+                currentLogMessage = {
+                    green: messages[0],
+                    yellow: messages[1],
+                    other: messages[2]
+                };
+            }
+        } catch (e) {
+            // Log message(s) not found - re-create them
+            currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
+            await updateLogMessage();
+            // Do this after, as to not remove them if new ones couldn't be created
+            for (const id of messageIds) {
+                await removeMessage({ id });
+            }
+            return;
         }
         await logTransaction('📝 Existing log loaded');
     }
@@ -1157,6 +1218,10 @@ client.once('clientReady', async () => {
                     required: true,
                 }
             ]
+        },
+        {
+            name: 'list-current-allocations',
+            description: "Lists all non-withdrawn allocations logged for today."
         },
         {
             name: 'search-historic-allocations',
