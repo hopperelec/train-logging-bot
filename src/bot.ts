@@ -99,8 +99,7 @@ let logChannel: TextChannel;
 let approvalChannel: TextChannel;
 let transactionChannel: TextChannel;
 let contributorGuild: Guild;
-let logAllocationCommandId: string;
-let aiLogCommandId: string;
+const commandIds: Record<string, Snowflake> = {};
 let currentLogMessage: Message | Partial<Record<TrnCategory, Message>>;
 const unconfirmedSubmissions = new Map<Snowflake, Submission>();
 const unconfirmedIntentSubmissions = new Map<Snowflake, LogAddTransaction>
@@ -818,7 +817,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         });
 
     } else if (interaction.commandName === 'usage') {
-        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to submit changes to the log. The recommended way is </ai-log:${aiLogCommandId}>, which allows you to describe an allocation or some changes to make in any format you like and have an AI make the changes for you. Alternatively, you can manually add/edit an allocation using </log-allocation:${logAllocationCommandId}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Check <#1429595223939612823> for more details.`);
+        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to make changes to the log: manually, using </log-allocation:${commandIds['log-allocation']}> and </remove-allocation:${commandIds['remove-allocation']}>, or with natural language, using </ai-log:${commandIds['ai-log']}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Check <#1429595223939612823> for more details.`);
     }
 }
 
@@ -1301,8 +1300,9 @@ client.once('clientReady', async () => {
             description: 'Sends a message explaining basic usage of the bot.'
         }
     ]);
-    logAllocationCommandId = commands.find(cmd => cmd.name === 'log-allocation').id;
-    aiLogCommandId = commands.find(cmd => cmd.name === 'ai-log').id;
+    for (const command of commands.values()) {
+        commandIds[command.name] = command.id;
+    }
 
     await startNewLog();
 });
