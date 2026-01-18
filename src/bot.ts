@@ -51,12 +51,7 @@ if (!DISCORD_TOKEN) {
 }
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 if (!LOG_CHANNEL_ID) {
-    console.error('Missing LOG_CHANNEL_ID environment variable.');
-    process.exit(1);
-}
-const APPROVAL_CHANNEL_ID = process.env.APPROVAL_CHANNEL_ID;
-if (!APPROVAL_CHANNEL_ID) {
-    console.warn('Missing APPROVAL_CHANNEL_ID environment variable. Non-contributors will not be able to submit entries for approval.');
+    console.warn('Missing LOG_CHANNEL_ID environment variable. Allocations will only be logged to the database.');
 }
 const TRANSACTION_CHANNEL_ID = process.env.TRANSACTION_CHANNEL_ID;
 if (!TRANSACTION_CHANNEL_ID) {
@@ -68,8 +63,13 @@ if (!CONTRIBUTOR_GUILD_ID !== !CONTRIBUTOR_ROLE_ID) {
     console.error('Both CONTRIBUTOR_GUILD_ID and CONTRIBUTOR_ROLE_ID must be set if one is set.');
     process.exit(1);
 }
-if (!CONTRIBUTOR_GUILD_ID) {
-    console.warn('Missing CONTRIBUTOR_GUILD_ID and CONTRIBUTOR_ROLE_ID environment variables. Anyone will be able to log entries.');
+const APPROVAL_CHANNEL_ID = process.env.APPROVAL_CHANNEL_ID;
+if (!APPROVAL_CHANNEL_ID && !CONTRIBUTOR_ROLE_ID) {
+    console.warn('No approval channel or contributor role configured. All submissions will be applied directly to the log.');
+} else if (APPROVAL_CHANNEL_ID && !CONTRIBUTOR_ROLE_ID) {
+    console.warn('No contributor role configured. All submissions will first go to the approval channel, but anyone with access to that channel can approve them.');
+} else if (!APPROVAL_CHANNEL_ID && CONTRIBUTOR_ROLE_ID) {
+    console.warn('No approval channel configured. Only contributors will be able to make changes to the log.');
 }
 
 export const CONTENT_CHARACTER_LIMIT = 2000; // Discord message content character limit
@@ -107,7 +107,8 @@ const submissionsForApproval = new Map<Snowflake, Submission>();
 const executedHistory = new Map<Snowflake, ExecutedSubmission>();
 
 async function logTransaction(message: string | BaseMessageOptions): Promise<void | Message> {
-    if (transactionChannel) return sendMessageWithoutPinging(message, transactionChannel).then();
+    if (!transactionChannel) return;
+    return sendMessageWithoutPinging(message, transactionChannel).then();
 }
 
 export function addUnconfirmedSubmission(id: Snowflake, submission: Submission) {
@@ -180,12 +181,14 @@ async function sendMessageWithoutPinging(content: string | BaseMessageOptions, c
 }
 
 async function sendLogMessage(content: string | BaseMessageOptions): Promise<Message> {
+    if (!logChannel) throw new Error('Log channel is not configured.');
     const message = await sendMessageWithoutPinging(content, logChannel);
     await addMessage(message);
     return message;
 }
 
-async function editOrSendLogMessage(message: Message, content: string | BaseMessageOptions) {
+async function editOrSendLogMessage(message: Message, content: string | BaseMessageOptions): Promise<Message> {
+    if (!logChannel) throw new Error('Log channel is not configured.');
     try {
         return await message.edit(
             typeof content === 'string'
@@ -206,6 +209,8 @@ async function editOrSendLogMessage(message: Message, content: string | BaseMess
 }
 
 async function updateLogMessage() {
+    if (!logChannel) return;
+
     const categories: Record<string, DailyLog> = {};
     for (const [trn, allocs] of Object.entries(getTodaysLog())) {
         const line = categorizeTRN(trn);
@@ -280,7 +285,7 @@ async function updateLogMessage() {
 }
 
 async function submitSubmission(submission: Submission): Promise<string> {
-    if (isContributor(submission.user)) {
+    if ((contributorGuild || !approvalChannel) && isContributor(submission.user)) {
         const listedTransactionsEmojis = listTransactions(submission.transactions);
         const listedTransactionsConsole = listTransactions(submission.transactions, { add: '+', remove: '-' });
         const undoTransactions = invertTransactions(submission.transactions);
@@ -817,7 +822,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         });
 
     } else if (interaction.commandName === 'usage') {
-        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to make changes to the log: manually, using </log-allocation:${commandIds['log-allocation']}> and </remove-allocation:${commandIds['remove-allocation']}>, or with natural language, using </ai-log:${commandIds['ai-log']}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Check <#1429595223939612823> for more details.`);
+        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to make changes to the log: manually, using </log-allocation:${commandIds['log-allocation']}> and </remove-allocation:${commandIds['remove-allocation']}>, or with natural language, using </ai-log:${commandIds['ai-log']}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to ${logChannel ? `<#${logChannel.id}>` : 'the database'}. Check <#1429595223939612823> for more details.`);
     }
 }
 
@@ -1074,30 +1079,34 @@ async function startNewLog() {
 
     const messageIds = await loadTodaysLog();
     if (messageIds.length === 0) {
-        currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
+        if (logChannel) {
+            currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
+        }
         await logTransaction('📝 New log started');
     } else {
-        try {
-            if (messageIds.length === 1) {
-                currentLogMessage = await logChannel.messages.fetch(messageIds[0]);
-            } else {
-                const messages = await Promise.all(messageIds.map(id => logChannel.messages.fetch(id)));
-                messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-                currentLogMessage = {
-                    green: messages[0],
-                    yellow: messages[1],
-                    other: messages[2]
-                };
+        if (logChannel) {
+            try {
+                if (messageIds.length === 1) {
+                    currentLogMessage = await logChannel.messages.fetch(messageIds[0]);
+                } else {
+                    const messages = await Promise.all(messageIds.map(id => logChannel.messages.fetch(id)));
+                    messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+                    currentLogMessage = {
+                        green: messages[0],
+                        yellow: messages[1],
+                        other: messages[2]
+                    };
+                }
+            } catch (e) {
+                // Log message(s) not found - re-create them
+                currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
+                await updateLogMessage();
+                // Do this after, as to not remove them if new ones couldn't be created
+                for (const id of messageIds) {
+                    await removeMessage({ id });
+                }
+                return;
             }
-        } catch (e) {
-            // Log message(s) not found - re-create them
-            currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
-            await updateLogMessage();
-            // Do this after, as to not remove them if new ones couldn't be created
-            for (const id of messageIds) {
-                await removeMessage({ id });
-            }
-            return;
         }
         await logTransaction('📝 Existing log loaded');
     }
@@ -1114,25 +1123,38 @@ async function startNewLog() {
 client.once('clientReady', async () => {
     console.log(`Logged in as @${client.user.tag}!`);
 
-    logChannel = client.channels.cache.get(LOG_CHANNEL_ID) as TextChannel;
-    if (!logChannel) {
-        console.error(`Log channel with ID ${LOG_CHANNEL_ID} not found.`);
-        process.exit(1);
+    if (LOG_CHANNEL_ID) {
+        logChannel = client.channels.cache.get(LOG_CHANNEL_ID) as TextChannel;
+        if (!logChannel) {
+            console.error(`Log channel with ID ${LOG_CHANNEL_ID} not found.`);
+            process.exit(1);
+        }
     }
-    approvalChannel = client.channels.cache.get(APPROVAL_CHANNEL_ID) as TextChannel;
-    if (APPROVAL_CHANNEL_ID && !approvalChannel) {
-        console.error(`Approval channel with ID ${APPROVAL_CHANNEL_ID} not found.`);
-        process.exit(1);
+    if (TRANSACTION_CHANNEL_ID) {
+        transactionChannel = client.channels.cache.get(TRANSACTION_CHANNEL_ID) as TextChannel;
+        if (!transactionChannel) {
+            console.error(`Transaction channel with ID ${TRANSACTION_CHANNEL_ID} not found.`);
+            process.exit(1);
+        }
     }
-    transactionChannel = client.channels.cache.get(TRANSACTION_CHANNEL_ID) as TextChannel;
-    if (TRANSACTION_CHANNEL_ID && !transactionChannel) {
-        console.error(`Transaction channel with ID ${TRANSACTION_CHANNEL_ID} not found.`);
-        process.exit(1);
+    if (CONTRIBUTOR_GUILD_ID) {
+        contributorGuild = client.guilds.cache.get(CONTRIBUTOR_GUILD_ID);
+        if (!contributorGuild) {
+            console.error(`Contributor guild with ID ${CONTRIBUTOR_GUILD_ID} not found.`);
+            process.exit(1);
+        }
+        const contributorRole = contributorGuild.roles.cache.get(CONTRIBUTOR_ROLE_ID);
+        if (!contributorRole) {
+            console.error(`Contributor role with ID ${CONTRIBUTOR_ROLE_ID} not found in guild ${CONTRIBUTOR_GUILD_ID}.`);
+            process.exit(1);
+        }
     }
-    contributorGuild = client.guilds.cache.get(CONTRIBUTOR_GUILD_ID);
-    if (CONTRIBUTOR_GUILD_ID && !contributorGuild) {
-        console.error(`Contributor guild with ID ${CONTRIBUTOR_GUILD_ID} not found.`);
-        process.exit(1);
+    if (APPROVAL_CHANNEL_ID) {
+        approvalChannel = client.channels.cache.get(APPROVAL_CHANNEL_ID) as TextChannel;
+        if (!approvalChannel) {
+            console.error(`Approval channel with ID ${APPROVAL_CHANNEL_ID} not found.`);
+            process.exit(1);
+        }
     }
 
     const commands = await client.application.commands.set([
