@@ -3,12 +3,12 @@
 This is the Discord bot developed for the [Metrowatch Discord server](https://discord.gg/KmBJznMyf4) for logging train allocations on the Tyne and Wear Metro network.
 
 ## 🔗 Table of contents
-- [ℹ️ How it works](#how-it-works)
-- [⚙️ Allocation fields](#allocation-fields)
-- [✨ Natural language (AI) logging](#natural-language-ai-logging)
-- [⌨️ Commands](#commands)
-- [📝 Logging FAQs](#logging-faqs)
-- [🏠 Hosting your own instance](#hosting-your-own-instance)
+- [ℹ️ How it works](#ℹ%EF%B8%8F-how-it-works)
+- [⚙️ Allocation fields](#%EF%B8%8F-allocation-fields)
+- [✨ Natural language (AI) logging](#-natural-language-ai-logging)
+- [⌨️ Commands](#%EF%B8%8F-commands)
+- [📝 Logging FAQs](#-logging-faqs)
+- [🏠 Hosting your own instance](#-hosting-your-own-instance)
 
 ## ℹ️ How it works
 - Every 3AM (or when the bot starts up), a new log is started.
