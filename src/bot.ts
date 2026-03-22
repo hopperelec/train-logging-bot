@@ -108,7 +108,7 @@ const executedHistory = new Map<Snowflake, ExecutedSubmission>();
 
 async function logTransaction(message: string | BaseMessageOptions): Promise<void | Message> {
     if (!transactionChannel) return;
-    return sendMessageWithoutPinging(message, transactionChannel).then();
+    return transactionChannel.send(dontMention(message));
 }
 
 export function addUnconfirmedSubmission(id: Snowflake, submission: Submission) {
@@ -132,7 +132,13 @@ export async function searchMembers(guild: Guild, queries: string[]): Promise<Gu
     return [...uniqueResults.values()];
 }
 
-function replacePingsWithNames(text: string) {
+function dontMention(message: string | BaseMessageOptions): BaseMessageOptions {
+    if (typeof message === 'string') message = { content: message };
+    message.allowedMentions = { parse: [] };
+    return message;
+}
+
+function replaceDiscordFeaturesWithNames(text: string) {
     return text
         // User mentions
         .replace(/<@!?(\d+)>/g, (_, userId) => {
@@ -144,10 +150,6 @@ function replacePingsWithNames(text: string) {
             const role = contributorGuild?.roles.cache.get(roleId);
             return role ? `@${role.name}` : `<@&${roleId}>`;
         })
-}
-
-function replaceDiscordFeaturesWithNames(text: string) {
-    return replacePingsWithNames(text)
         // Emojis
         .replace(/<a?:(\w+):\d+>/g, (_, name) => `:${name}:`)
         // Channel mentions
@@ -166,23 +168,9 @@ function renderEmptyCategory(category: TrnCategory): string {
     return `${CATEGORY_HEADERS[category]}\n*No ${CATEGORY_DISPLAY_NAMES[category]} have been logged yet today.*`;
 }
 
-async function sendMessageWithoutPinging(content: string | BaseMessageOptions, channel: TextChannel): Promise<Message> {
-    const initialContent = typeof content === 'string' ? replaceDiscordFeaturesWithNames(content) : {
-        ...content,
-        content: content.content ? replaceDiscordFeaturesWithNames(content.content) : undefined
-    }
-    const message = await channel.send(initialContent);
-    if (typeof content === 'string') {
-        if (content === initialContent) return message;
-    } else if (typeof initialContent === 'object' && content.content === initialContent.content) {
-        return message;
-    }
-    return await message.edit(content);
-}
-
 async function sendLogMessage(content: string | BaseMessageOptions): Promise<Message> {
     if (!logChannel) throw new Error('Log channel is not configured.');
-    const message = await sendMessageWithoutPinging(content, logChannel);
+    const message = await logChannel.send(dontMention(content));
     await addMessage(message);
     return message;
 }
@@ -649,7 +637,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         const existingAllocs = getAllocationsForTRN(trn);
         if (existingAllocs) {
-            await interaction.reply(dailyLogToString({ [trn]: existingAllocs }));
+            await interaction.reply(dontMention(dailyLogToString({ [trn]: existingAllocs })));
         } else {
             await interaction.reply(`❌ Nothing has been logged for TRN "${trn}" today.`);
         }
