@@ -91,7 +91,7 @@ export function normalizeUnits(units: string) {
         return units
             .replace(/5550([\dx]{2})/g, '7770$1')
             .replace(/40([0-3]\d|4[0-5]|[0-4]x)/g, '5070$1')
-            .replace(/40(4[6-9]|[5-9]\d|[5-9]x|x[\dx])/g, '5080$1');
+            .replace(/40(4[6-9]|[5-9]\d|[5-9]x|x[\dx])/g, '5081$1');
     }
 
     return units
