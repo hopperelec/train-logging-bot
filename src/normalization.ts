@@ -1,6 +1,7 @@
 // This was complicated enough to warrant a dedicated file.
 
 import {TRN} from "./types";
+import {NEW_DAY_HOUR} from "./bot";
 
 // --- TRN ---
 
@@ -61,7 +62,7 @@ function addEmojis(unitEmoji: string) {
 }
 
 export function normalizeUnits(units: string) {
-    return units
+    units = units
         // Normalize 555 units
         .replace(CLASS_555_FORMATTING_REGEX, (_, __, unit) => `555${unit}`)
         // Normalize formatting of individual metrocar units
@@ -83,5 +84,22 @@ export function normalizeUnits(units: string) {
         // Add emojis to class 555 units
         .replace(CLASS_555_EMOJI_REGEX, addEmojis(':class555:1358573606665195558'))
         // Add emojis to metrocar sets
-        .replace(METROCAR_EMOJI_REGEX, addEmojis(':metrocar:1332544654847115354'))
+        .replace(METROCAR_EMOJI_REGEX, addEmojis(':metrocar:1332544654847115354'));
+
+    // APRIL FOOLS: Replace 555s with 777, and metrocars with 507/508
+    if (isAprilFools()) {
+        return units
+            .replace(/5550(\d{2})/g, '7770$1')
+            .replace(/40([0-3]\d|4[0-5])/g, '5070$1')
+            .replace(/40(4[6-9]|5\d)/g, '5080$1');
+    }
+
+    return units
+}
+
+export function isAprilFools(): boolean {
+    const now = new Date();
+    return now.getMonth() === 3 && now.getDate() === 1
+        && now.getHours() >= NEW_DAY_HOUR
+        && now.getHours() < 12;
 }

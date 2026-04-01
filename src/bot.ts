@@ -18,7 +18,7 @@ import {
     StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent,
 } from 'discord.js';
 import { config } from 'dotenv';
-import {normalizeTRN, normalizeUnits} from "./normalization";
+import {isAprilFools, normalizeTRN, normalizeUnits} from "./normalization";
 import {
     DailyLog,
     ExecutedSubmission, LogAddTransaction, LogTransaction,
@@ -1100,6 +1100,14 @@ async function startNewLog() {
     }
 
     const now = new Date();
+
+    // APRIL FOOLS: Update log message at noon to reset
+    if (isAprilFools()) {
+        const aprilFoolsRun = new Date();
+        aprilFoolsRun.setHours(12, 0, 0, 0);
+        setTimeout(updateLogMessage, aprilFoolsRun.getTime() - now.getTime());
+    }
+
     const nextRun = new Date();
     nextRun.setHours(NEW_DAY_HOUR, 0, 0, 0);
     if (now.getHours() >= NEW_DAY_HOUR) {
