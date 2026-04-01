@@ -89,9 +89,9 @@ export function normalizeUnits(units: string) {
     // APRIL FOOLS: Replace 555s with 777, and metrocars with 507/508
     if (isAprilFools()) {
         return units
-            .replace(/5550(\d{2})/g, '7770$1')
-            .replace(/40([0-3]\d|4[0-5])/g, '5070$1')
-            .replace(/40(4[6-9]|5\d)/g, '5080$1');
+            .replace(/5550([\dx]{2})/g, '7770$1')
+            .replace(/40([0-3]\d|4[0-5]|[0-4]x)/g, '5070$1')
+            .replace(/40(4[6-9]|5\d|[5-9]x|x[\dx])/g, '5080$1');
     }
 
     return units
