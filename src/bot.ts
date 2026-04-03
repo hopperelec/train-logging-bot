@@ -178,11 +178,10 @@ async function sendLogMessage(content: string | BaseMessageOptions): Promise<Mes
 async function editOrSendLogMessage(message: Message, content: string | BaseMessageOptions): Promise<Message> {
     if (!logChannel) throw new Error('Log channel is not configured.');
     try {
-        return await message.edit(
-            typeof content === 'string'
-                ? { content, files: [] }: // Remove files if they were previously attached
-                content
-        )
+        return await message.edit({
+            ...dontMention(content),
+            files: [] // Remove files if they were previously attached
+        })
     } catch {
         // If the message was deleted or something went wrong, send a new one
         let newMessage: Message;
@@ -257,7 +256,10 @@ async function updateLogMessage() {
             // Modified implementation of `editOrSendMessage` to only re-send if there are other workings
             const content = renderMultipleMessageCategory('other');
             try {
-                currentLogMessage.other = await currentLogMessage.other.edit(content);
+                currentLogMessage.other = await currentLogMessage.other.edit({
+                    ...dontMention(content),
+                    files: [] // Remove files if they were previously attached
+                });
             } catch {
                 if (categories.other) {
                     currentLogMessage.other = await sendLogMessage(content);
