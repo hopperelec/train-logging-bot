@@ -54,16 +54,20 @@ A boolean flag (true) stating that these units are no longer running on that TRN
 {"trn":"Delivery","units":"43001+43002+555045+555046","sources":"...","notes":"555045+555046 delivery"}
 {"trn":"Delivery","units":"555001+555045+555046","sources":"...","notes":"555045+555046 delivery"}
 
-"T101 and T102 swapped. 555002 is now on T101 and 555003 is on T102"
-{"trn":"T101","units":"555003","sources":"...","notes":"swapped to T102","index":0,"withdrawn":true}
-{"trn":"T101","units":"555002","sources":"...","index":1}
-{"trn":"T102","units":"555002","sources":"...","notes":"swapped to T101","index":0,"withdrawn":true}
-{"trn":"T102","units":"555003","sources":"...","index":1}
+"T101 swapped to T102" and T101 is currently logged with 555002 and T102 is currently logged with 555003
+{"trn":"T101","units":"555002","sources":"...","notes":"swapped to T102","withdrawn":true}
+{"trn":"T102","units":"555003","sources":"...","withdrawn":true}
+{"trn":"T102","units":"555002","sources":"...","index":1}
+
+"T101 is now 555003" (following the previous log)
+{"trn":"T101","units":"555002","sources":"...","notes":"swapped with T102","withdrawn":true}
+{"trn":"T102","units":"555003","sources":"...","notes":"swapped with T103","withdrawn":true}
+{"trn":"T101","units":"555003","sources":"...","index":1}
 
 "T101 and T102 have swapped again" (following the previous log)
-{"trn":"T101","units":"555003","sources":"...","notes":"briefly swapped to T102 but swapped back"}
+{"trn":"T101","units":"555003","sources":"...","notes":"briefly swapped with T102 but swapped back"}
 {"trn":"T101","units":"555002","sources":"..."}
-{"trn":"T102","units":"555002","sources":"...","notes":"briefly swapped to T101 but swapped back"}
+{"trn":"T102","units":"555002","sources":"...","notes":"briefly swapped with T101 but swapped back"}
 {"trn":"T102","units":"555003","sources":"..."}
 
 # Wiki statuses
