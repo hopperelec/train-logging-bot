@@ -53,9 +53,19 @@ if (GOOGLE_AI_API_KEY) {
     const google = createGoogleGenerativeAI({ apiKey: GOOGLE_AI_API_KEY });
     MODELS.push(
         {
+            name: 'Gemini 3 Flash Preview',
+            model: google('gemini-3-flash-preview'),
+            priority: 6
+        },
+        {
             name: 'Gemini 2.5 Flash',
             model: google('gemini-2.5-flash'),
-            priority: 4
+            priority: 5
+        },
+        {
+            name: 'Gemini 3.1 Flash Lite Preview',
+            model: google('gemini-3.1-flash-lite-preview'),
+            priority: 2
         },
         {
             name: 'Gemini 2.5 Flash Lite',
@@ -74,7 +84,7 @@ if (GROQ_API_KEY) {
     MODELS.push({
         name: 'gpt-oss-120b via Groq',
         model: groq('openai/gpt-oss-120b'),
-        priority: 3
+        priority: 4
     });
 }
 if (OPENROUTER_API_KEY) {
@@ -82,7 +92,7 @@ if (OPENROUTER_API_KEY) {
     MODELS.push({
         name: 'gpt-oss-120b via OpenRouter',
         model: openrouter('openai/gpt-oss-120b:free'),
-        priority: 2
+        priority: 3
     });
 }
 if (NVIDIA_NIM_API_KEY) {

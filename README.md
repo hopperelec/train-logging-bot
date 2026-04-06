@@ -43,9 +43,11 @@ I understand that generative AI is controversial, so I want to emphasize that:
 - **for server owners:** the AI features are entirely optional and can be disabled by not providing any API keys
 
 The following models and providers are supported. When multiple API keys are provided, they will be used in the order listed below, falling back to the next if one fails (e.g. due to rate limiting or quota exhaustion):
+- Gemini 3 Flash Preview
 - Gemini 2.5 Flash
 - gpt-oss-120b via Groq
 - gpt-oss-120b via OpenRouter
+- Gemini 3.1 Flash Lite Preview
 - Gemini 2.5 Flash Lite
 - Gemini 2.0 Flash
 - gpt-oss-120b via NVIDIA NIM
