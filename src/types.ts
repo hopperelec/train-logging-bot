@@ -4,6 +4,7 @@ import {
     TextInputStyle,
     StringSelectMenuComponentData, SelectMenuComponentOptionData, TextInputComponentData, TextDisplayComponentData
 } from 'discord.js';
+import {LanguageModelV2} from "@openrouter/ai-sdk-provider";
 
 // Core types
 
@@ -51,6 +52,7 @@ interface ManualSubmission {
 export interface NlpSubmission extends ManualSubmission {
     messages: NLPConversation;
     summary: string;
+    userSpecifiedModel?: Model;
 }
 
 export type Submission = ManualSubmission | NlpSubmission;
@@ -101,4 +103,13 @@ interface JSONStringSelect extends Omit<StringSelectMenuComponentData, 'type' | 
 export interface JSONModal {
     title: string;
     components: (JSONTextDisplay | JSONTextInput | JSONStringSelect)[];
+}
+
+// Models
+
+export interface Model {
+    name: string;
+    model: LanguageModelV2;
+    priority: number; // Higher is better
+    rateLimitExpiry?: number;
 }

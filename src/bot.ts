@@ -30,7 +30,7 @@ import {
     aiLogContextMenu,
     cleanup as cleanupNLP,
     clarificationFormSubmission, nlpCorrectionFormSubmission,
-    openClarificationForm, openNlpCorrectionForm
+    openClarificationForm, openNlpCorrectionForm, getModelNames
 } from "./nlp";
 import {categorizeTRN, dailyLogToString, detailsToString, invertTransactions, listTransactions} from "./utils";
 import {
@@ -1158,6 +1158,12 @@ client.once('clientReady', async () => {
                     description: "Description of the changes to make to today's log. Please mention sources.",
                     required: true,
                     maxLength: 512
+                },
+                {
+                    name: 'model',
+                    type: 3, // string
+                    description: 'The AI model to use',
+                    choices: getModelNames().map(model => ({ name: model, value: model })),
                 }
             ]
         },
