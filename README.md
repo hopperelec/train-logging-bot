@@ -42,11 +42,11 @@ I understand that generative AI is controversial, so I want to emphasize that:
 - **for users:** AI has absolutely no involvement in changes made with `/log-allocation` or `/remove-allocation` and you are not obligated to use the AI features at all. Furthermore, no changes (whether manual or AI-assisted) will enter the log without first being approved by both you *and* one of our contributors.
 - **for server owners:** the AI features are entirely optional and can be disabled by not providing any API keys
 
-The following models and providers are supported. When multiple API keys are provided, they will be used in the order listed below, falling back to the next if one fails (e.g. due to rate limiting or quota exhaustion):
-- Gemini 3 Flash Preview
+The following models and providers are supported. When multiple API keys are provided and no model is explicitly selected by a user, they will be used in the order listed below, falling back to the next if one fails (e.g. due to rate limiting or quota exhaustion):
 - Gemini 2.5 Flash
 - gpt-oss-120b via Groq
 - gpt-oss-120b via OpenRouter
+- Gemini 3 Flash Preview
 - Gemini 3.1 Flash Lite Preview
 - Gemini 2.5 Flash Lite
 - Gemini 2.0 Flash
@@ -58,7 +58,7 @@ The LLM is provided with a lot of context, instructions and examples to ensure i
 
 - `/log-allocation (trn) (units) [sources] [notes] [withdrawn] [index]` — Log one of today's allocations.
 - `/remove-allocation (trn) (units)` — Remove an allocation from today's log.
-- `/ai-log (prompt)` or context menu `Log with AI` — Amend the log using AI.
+- `/ai-log (prompt) [model]` or context menu `Log with AI` — Amend the log using AI.
 - `/search-trn (trn)` — Get the currently logged allocations for a given TRN.
 - `/search-unit (query)` — Get all logged allocations containing the given unit.
 - `/list-current-allocations` — Lists all non-withdrawn allocations logged for today.
