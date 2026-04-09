@@ -1087,6 +1087,7 @@ async function startNewLog() {
                         other: messages[2]
                     };
                 }
+                await updateLogMessage();
             } catch (e) {
                 // Log message(s) not found - re-create them
                 currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
@@ -1095,7 +1096,6 @@ async function startNewLog() {
                 for (const id of messageIds) {
                     await removeMessage({ id });
                 }
-                return;
             }
         }
         await logTransaction('📝 Existing log loaded');
