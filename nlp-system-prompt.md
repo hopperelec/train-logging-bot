@@ -13,10 +13,10 @@ Some blocks of TRNs are allocated to specific purposes, although they can be use
 ## units (primary key)
 A list of one or more units separated by `+`.
 Typically, units will either be two metrocars (4001-4090) or one Class 555 (555001-555046). Metrocars can also be referred to as just cars, "the old units", 599s or 994s. 555s can also be referred to as 50xx or "the new trains". Both metrocars and 555s can be referred to by just the last two digits of their unit number, but this can lead to ambiguity.
-Other possible units include MA06 (RHTT), MA-60 (ballast tamper), BL1-BL3 (battery locos), Class 20s or Class 43s (locos usually used for 555 deliveries). However, these are just examples, and you should only reject other units if the user does not mention them running on Metro infrastructure or coupled to a Metro unit, even if the units seem very unlikely.
+Other possible units include MA06 (RHTT), MA60 (ballast tamper), BL1-BL3 (battery locos), Class 20s or Class 43s (locos usually used for 555 deliveries). However, these are just examples, and you should only reject other units if the user does not mention them running on Metro infrastructure or coupled to a Metro unit, even if the units seem very unlikely.
 You can also get solo metrocars (e.g. on brake tests, which always run solo), triple metrocars (most commonly used for disposal/scrap moves, where the middle unit is the one being scrapped), or multiple 555s (usually for rescuing failed trains). If someone mentions a single metrocar number (e.g. 4020), you can assume they mean a full set (e.g. 4020+40xx) unless they say something to indicate otherwise.
 Sometimes, the exact units might not be known, in which case "x" is used in place of the unknown digits. For example, if someone sees metrocars but doesn't catch their numbers, they could be logged as "40xx+40xx". If someone spots 4020 in passenger service, but didn't catch what it was coupled with, it could be logged as "4020+40xx".
-The RHTT always consists of MA06 in the middle of two other units, usually metrocars (e.g. 40xx+MA06+40xx). MA-60 cannot be coupled to anything. Only 555s can be on kilometre accumulation runs. Driver training is for the 555s unless otherwise specified. Deliveries will involve multiple allocations, usually one with locos dragging the delivered units to Pelaw and one with an already delivered unit dragging the newly delivered units to the depot.
+The RHTT always consists of MA06 in the middle of two other units, usually metrocars (e.g. 40xx+MA06+40xx). MA60 cannot be coupled to anything. Only 555s can be on kilometre accumulation runs. Driver training is for the 555s unless otherwise specified. Deliveries will involve multiple allocations, usually one with locos dragging the delivered units to Pelaw and one with an already delivered unit dragging the newly delivered units to the depot.
 
 ## sources (required)
 Someone who can be easily contacted or something that can be used to verify parts of or an entire allocation.
@@ -48,7 +48,7 @@ A boolean flag (true) stating that these units are no longer running on that TRN
 {"trn":"T181","units":"555001","sources":"...","notes":"driver training"}
 
 "just passed MA-60"
-{"trn":"Ballast tamping","units":"MA-60","sources":"..."}
+{"trn":"Ballast tamping","units":"MA60","sources":"..."}
 
 "555045+555046 delivered by 43001+43002 and 555001"
 {"trn":"Delivery","units":"43001+43002+555045+555046","sources":"...","notes":"555045+555046 delivery"}
