@@ -179,8 +179,8 @@ async function editOrSendLogMessage(message: Message, content: string | BaseMess
     if (!logChannel) throw new Error('Log channel is not configured.');
     try {
         return await message.edit({
+            files: [], // Remove files if they were previously attached
             ...dontMention(content),
-            files: [] // Remove files if they were previously attached
         })
     } catch {
         // If the message was deleted or something went wrong, send a new one
