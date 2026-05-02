@@ -18,7 +18,7 @@ import {
     StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent,
 } from 'discord.js';
 import { config } from 'dotenv';
-import {normalizeTRN, normalizeUnits} from "./normalization";
+import {normalizeTRN, normalizeUnits} from "./normalisation";
 import {
     DailyLog,
     ExecutedSubmission, LogAddTransaction, LogTransaction,

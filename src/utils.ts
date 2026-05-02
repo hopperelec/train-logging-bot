@@ -1,5 +1,5 @@
 import {DailyLog, LogEntry, LogEntryDetails, LogTransaction, TRN, TrnCategory} from "./types";
-import {normalizeUnits} from "./normalization";
+import {normalizeUnits} from "./normalisation";
 import {Snowflake} from "discord.js";
 import {getTodaysLog} from "./db";
 
