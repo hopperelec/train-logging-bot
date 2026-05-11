@@ -72,6 +72,8 @@ if (!APPROVAL_CHANNEL_ID && !CONTRIBUTOR_ROLE_ID) {
     console.warn('No approval channel configured. Only contributors will be able to make changes to the log.');
 }
 
+let usageMessage: string;
+
 export const CONTENT_CHARACTER_LIMIT = 2000; // Discord message content character limit
 export const EMBED_DESCRIPTION_CHARACTER_LIMIT = 4096; // Discord embed description character limit
 export const NEW_DAY_HOUR = 3;
@@ -812,7 +814,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         });
 
     } else if (interaction.commandName === 'usage') {
-        await interaction.reply(`**About this bot** — I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to make changes to the log: manually, using </log-allocation:${commandIds['log-allocation']}> and </remove-allocation:${commandIds['remove-allocation']}>, or with natural language, using </ai-log:${commandIds['ai-log']}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to ${logChannel ? `<#${logChannel.id}>` : 'the database'}. Check <#1429595223939612823> for more details.`);
+        await interaction.reply(`**About this bot** — ${usageMessage}`);
     }
 }
 
@@ -1316,11 +1318,16 @@ client.once('clientReady', async () => {
         {
             name: 'usage',
             description: 'Sends a message explaining basic usage of the bot.'
+        },
+        {
+            name: 'Reply with usage',
+            type: 3, // message context menu
         }
     ]);
     for (const command of commands.values()) {
         commandIds[command.name] = command.id;
     }
+    usageMessage = `I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to make changes to the log: manually, using </log-allocation:${commandIds['log-allocation']}> and </remove-allocation:${commandIds['remove-allocation']}>, or with natural language, using </ai-log:${commandIds['ai-log']}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Check <#1429595223939612823> for more details.`
 
     await startNewLog();
 });
@@ -1337,6 +1344,8 @@ client.on('interactionCreate', async (interaction) => {
     } else if (interaction.isMessageContextMenuCommand()) {
         if (interaction.commandName === 'Log with AI') {
             await aiLogContextMenu(interaction);
+        } else if (interaction.commandName === 'Reply with usage') {
+            await interaction.reply(`Hello, ${interaction.targetMessage.author}! ${usageMessage}`).catch(console.error);
         }
     } else if (interaction.isModalSubmit()) {
         const [action,uuid] = interaction.customId.split(':');
