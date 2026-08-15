@@ -25,7 +25,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const NVIDIA_NIM_API_KEY = process.env.NVIDIA_NIM_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const WIKI_API_URL = "https://metro.hopperelec.co.uk/wiki/api.php";
-const WIKI_QUERY = "[[Has unit identifier::+]]|?Has unit identifier|?Has unit status|limit=200";
+const WIKI_QUERY = "[[Has vehicle identifier::+]]|?Has vehicle identifier|?Has vehicle status|limit=200";
 const MAX_DEPTH = 3;
 
 const MODELS: Model[] = [];
@@ -111,16 +111,18 @@ export function getModelNames(): string[] {
     return MODELS.map(m => m.name);
 }
 
-function loadWikiData() {
+function loadWikiData(): void {
     unitStatuses = {};
     fetch(
         `${WIKI_API_URL}?action=ask&format=json&query=${encodeURIComponent(WIKI_QUERY)}`,
         { headers: { 'User-Agent': 'train-logging-bot' } }
     ).then(res => res.json())
-        .then((data) => {
+        .then((data: any) => {
             unitStatuses = {};
-            for (const page of Object.values(data.query.results) as any[]) {
-                unitStatuses[page.printouts['Has unit identifier'][0]] = page.printouts['Has unit status'][0] || 'Unknown';
+            for (const page of Object.values(data?.query?.results || {}) as any[]) {
+                const identifier = page.printouts['Has vehicle identifier']?.[0];
+                if (!identifier) continue;
+                unitStatuses[identifier] = page.printouts['Has vehicle status']?.[0] || 'Unknown';
             }
         })
         .catch(console.error);
@@ -408,13 +410,15 @@ async function runPrompt(
                                             const nameInfo: {
                                                 id: string;
                                                 username: string;
-                                                globalName: string;
+                                                globalName?: string;
                                                 nickname?: string;
                                             } = {
                                                 id: member.id,
                                                 username: member.user.username,
-                                                globalName: member.user.globalName,
                                             };
+                                            if (member.user.globalName) {
+                                                nameInfo.globalName = member.user.globalName;
+                                            }
                                             if (member.nickname) {
                                                 nameInfo.nickname = member.nickname;
                                             }
@@ -464,8 +468,7 @@ async function runPrompt(
     }
 
     // Try models from best to worst until one works without rate limiting
-    for (let i = 0; i < MODELS.length; i++) {
-        const model = MODELS[i];
+    for (const model of MODELS) {
         if (model.rateLimitExpiry && model.rateLimitExpiry > Date.now()) continue;
 
         if (await runPromptWithModel(model)) return;
@@ -522,7 +525,7 @@ export async function aiLogCommand(interaction: ChatInputCommandInteraction): Pr
     await runPrompt(interaction, formatInitialPrompt(prompt, interaction.user), model);
 }
 
-export async function aiLogContextMenu(interaction: MessageContextMenuCommandInteraction) {
+export async function aiLogContextMenu(interaction: MessageContextMenuCommandInteraction): Promise<void> {
     if (MODELS.length === 0) {
         await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
         return;
@@ -533,7 +536,7 @@ export async function aiLogContextMenu(interaction: MessageContextMenuCommandInt
     await runPrompt(interaction, formatInitialPrompt(prompt, interaction.targetMessage.author));
 }
 
-export async function openClarificationForm(uuid: string, interaction: ButtonInteraction) {
+export async function openClarificationForm(uuid: string, interaction: ButtonInteraction): Promise<void> {
     const {errorWithId} = getIdLoggers(uuid);
 
     const form = clarificationForms.get(uuid);
@@ -602,7 +605,7 @@ export async function openClarificationForm(uuid: string, interaction: ButtonInt
     });
 }
 
-export async function clarificationFormSubmission(uuid: string, interaction: ModalSubmitInteraction) {
+export async function clarificationFormSubmission(uuid: string, interaction: ModalSubmitInteraction): Promise<void> {
     const form = clarificationForms.get(uuid);
     if (!form) {
         await interaction.reply({
@@ -621,7 +624,7 @@ export async function clarificationFormSubmission(uuid: string, interaction: Mod
     ], form.userSpecifiedModel);
 }
 
-export async function openNlpCorrectionForm(uuid: string, interaction: ButtonInteraction) {
+export async function openNlpCorrectionForm(uuid: string, interaction: ButtonInteraction): Promise<void> {
     await interaction.showModal({
         title: 'Correction to AI Submission',
         customId: `correction:${uuid}`,
@@ -653,7 +656,7 @@ export async function nlpCorrectionFormSubmission(
     await runPrompt(interaction, messages, originalSubmission.userSpecifiedModel);
 }
 
-export function cleanup() {
+export function cleanup(): void {
     clarificationForms.clear();
     loadWikiData();
 }

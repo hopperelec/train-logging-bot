@@ -95,9 +95,8 @@ Just log it again, the same way you would if it hadn't already been logged. You 
 
 You are welcome to host your own instance of this bot. Below are instructions for doing so.
 
-### Prerequisites
-- [Node.js](https://nodejs.org/en/download/) v20.19.0+ or 22.12.0+
-- [pnpm](https://pnpm.io/installation) v10.1.0+
+### Prerequisite
+[Bun](https://bun.com/docs/installation) v1.3.14+
 
 ### Create a Discord bot
 
@@ -157,7 +156,7 @@ You will need a server (a physical one, not just a Discord server) to host the b
    ```
 2. Install dependencies
    ```bash
-    pnpm i
+    bun i
    ```
 3. Create your `.env` file if you haven't already
    ```bash
@@ -166,13 +165,13 @@ You will need a server (a physical one, not just a Discord server) to host the b
    Then edit `.env` to add your configuration.
 4. Initialize the database
    ```bash
-   pnpm prisma:deploy
+   bun prisma:deploy
    ```
 5. Edit `/usage` message in `src/bot.ts` (search for "**About this bot**" - it is currently hardcoded for Metrowatch) to suit your server.
 6. Edit the emojis prepended to metrocars and Class 555 units in `src/normalization.ts` (search for `:metrocar:` and `:class555:` - these are currently hardcoded for Metrowatch) to suit your server. You will need the IDs of the custom emojis you want to use.
 7. Start the bot
    ```bash
-   pnpm start
+   bun start
    ```
    
 ### Updating
@@ -189,9 +188,9 @@ To update to the latest version:
    If you reset, you will need to re-apply any customizations you made (e.g. step 5 and 6 from the installation instructions).
 2. Update dependencies
    ```bash
-   pnpm i
+   bun i
    ```
 3. Update the database schema
    ```bash
-   pnpm prisma:deploy
+   bun prisma:deploy
    ```

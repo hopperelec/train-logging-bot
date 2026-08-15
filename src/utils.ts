@@ -3,16 +3,19 @@ import {normalizeUnits} from "./normalisation";
 import {Snowflake} from "discord.js";
 import {getTodaysLog} from "./db";
 
-export function getIdLoggers(id: Snowflake) {
-    function runWithUUID(func: (...args: string[]) => void, message: string, obj?: any) {
-        return obj === undefined
-            ? func(`[${id}] ${message}`)
-            : func(`[${id}] ${message}`, JSON.stringify(obj));
+export function getIdLoggers(id: Snowflake): {
+    logWithId: (message: string, obj?: any) => void,
+    warnWithId: (message: string, obj?: any) => void,
+    errorWithId: (message: string, obj?: any) => void
+} {
+    function runWithUUID(func: (...args: string[]) => void, message: string, obj?: any): void {
+        if (obj === undefined) func(`[${id}] ${message}`);
+        else func(`[${id}] ${message}`, JSON.stringify(obj));
     }
     return {
-        logWithId: (message: string, obj?: any) => runWithUUID(console.log, message, obj),
-        warnWithId: (message: string, obj?: any) => runWithUUID(console.warn, message, obj),
-        errorWithId: (message: string, obj?: any) => runWithUUID(console.error, message, obj)
+        logWithId: (message, obj) => runWithUUID(console.log, message, obj),
+        warnWithId: (message, obj) => runWithUUID(console.warn, message, obj),
+        errorWithId: (message, obj) => runWithUUID(console.error, message, obj)
     }
 }
 
@@ -20,13 +23,13 @@ const TRN_REGEX = new RegExp(/^T?(\d{3})/);
 export function categorizeTRN(trn: TRN): TrnCategory {
     const match = trn.match(TRN_REGEX);
     if (!match) return 'other';
-    const number = +match[1];
+    const number = +match[1]!;
     if (number >= 101 && number <= 112) return 'green';
     if (number >= 121 && number <= 136) return 'yellow';
     return 'other';
 }
 
-export function dailyLogToString(dailyLog: DailyLog) {
+export function dailyLogToString(dailyLog: DailyLog): string {
     return Object.entries(dailyLog)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([trn, allocations]) => {
@@ -62,7 +65,7 @@ export function dailyLogToString(dailyLog: DailyLog) {
         .join('\n');
 }
 
-export function detailsToString(details: LogEntryDetails) {
+export function detailsToString(details: LogEntryDetails): string {
     const parts = [`sources: ${details.sources.replaceAll('|','\\|')}`];
     if (details.notes) {
         parts.push(`notes: ${details.notes.replaceAll('|','\\|')}`);
@@ -76,7 +79,7 @@ export function detailsToString(details: LogEntryDetails) {
     return parts.join(' | ');
 }
 
-export function entryToString(entry: LogEntry) {
+export function entryToString(entry: LogEntry): string {
     return `${entry.trn} - ${entry.units} (${detailsToString(entry.details)})`;
 }
 
@@ -109,18 +112,18 @@ export function invertTransactions(
     // Process in reverse to maintain state validity
     for (const tx of [...transactions].reverse()) {
         const existingDetails = referenceLog[tx.trn]?.[tx.units];
-        if (tx.type === 'add' && !existingDetails) {
-            inverse.push({
-                type: 'remove',
-                trn: tx.trn,
-                units: tx.units
-            });
-        } else {
+        if (existingDetails) {
             inverse.push({
                 type: 'add',
                 trn: tx.trn,
                 units: tx.units,
                 details: existingDetails
+            });
+        } else {
+            inverse.push({
+                type: 'remove',
+                trn: tx.trn,
+                units: tx.units
             });
         }
     }

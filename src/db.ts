@@ -1,13 +1,13 @@
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../generated/prisma/client";
-import {DailyLog, LogTransaction} from "./types";
+import {DailyLog, LogEntryDetails, LogTransaction} from "./types";
 import {NEW_DAY_HOUR} from "./bot";
+import {PrismaBunSqlite} from "prisma-adapter-bun-sqlite";
 
 let todaysLog: DailyLog = {};
 let dayId: number;
 
 const prisma = new PrismaClient({
-    adapter: new PrismaBetterSqlite3({ url: 'file:./train-logs.db' })
+    adapter: new PrismaBunSqlite({ url: 'file:./train-logs.db' })
 });
 
 // Returns any existing message IDs
@@ -31,10 +31,12 @@ export async function loadTodaysLog(): Promise<string[]> {
     if (existingDay) {
         dayId = existingDay.id;
         for (const allocation of existingDay.allocations) {
-            if (!todaysLog[allocation.trn]) {
-                todaysLog[allocation.trn] = {};
+            let trnAllocations = todaysLog[allocation.trn];
+            if (!trnAllocations) {
+                trnAllocations = {};
+                todaysLog[allocation.trn] = trnAllocations;
             }
-            todaysLog[allocation.trn][allocation.units] = {
+            trnAllocations[allocation.units] = {
                 sources: allocation.sources,
                 notes: allocation.notes || undefined,
                 index: allocation.index || undefined,
@@ -57,13 +59,13 @@ export function getTodaysLog(): DailyLog {
     return structuredClone(todaysLog);
 }
 
-export async function removeMessage(message: {id: string}) {
+export async function removeMessage(message: {id: string}): Promise<void> {
     await prisma.message.delete({
         where: { id: message.id },
     });
 }
 
-export async function addMessage(message: {id: string}) {
+export async function addMessage(message: {id: string}): Promise<void> {
     await prisma.message.create({
         data: {
             id: message.id,
@@ -72,11 +74,11 @@ export async function addMessage(message: {id: string}) {
     });
 }
 
-export function getAllocationsForTRN(trn: string) {
-    return structuredClone(todaysLog[trn]);
+export function getAllocationsForTRN(trn: string): Record<string, LogEntryDetails> {
+    return structuredClone(todaysLog[trn] || {});
 }
 
-export function getAllocation(trn: string, units: string) {
+export function getAllocation(trn: string, units: string): LogEntryDetails | undefined {
     return structuredClone(todaysLog[trn]?.[units]);
 }
 
@@ -143,7 +145,7 @@ export async function searchHistoricAllocations(filters: {
     }));
 }
 
-export async function runTransactions(transactions: LogTransaction[]) {
+export async function runTransactions(transactions: LogTransaction[]): Promise<void> {
     await prisma.$transaction([
         // Delete *all* affected allocations, so that additions will replace any existing ones
         prisma.allocation.deleteMany({
@@ -167,14 +169,17 @@ export async function runTransactions(transactions: LogTransaction[]) {
     ]);
     for (const transaction of transactions) {
         if (transaction.type === 'add') {
-            if (!todaysLog[transaction.trn]) {
-                todaysLog[transaction.trn] = {};
+            let trnAllocations = todaysLog[transaction.trn];
+            if (!trnAllocations) {
+                trnAllocations = {};
+                todaysLog[transaction.trn] = trnAllocations;
             }
-            todaysLog[transaction.trn][transaction.units] = transaction.details;
+            trnAllocations[transaction.units] = transaction.details;
         } else if (transaction.type === 'remove') {
-            if (todaysLog[transaction.trn]?.[transaction.units]) {
-                delete todaysLog[transaction.trn][transaction.units];
-                if (Object.keys(todaysLog[transaction.trn]).length === 0) {
+            const trnAllocations = todaysLog[transaction.trn];
+            if (trnAllocations?.[transaction.units]) {
+                delete trnAllocations[transaction.units];
+                if (Object.keys(trnAllocations).length === 0) {
                     delete todaysLog[transaction.trn];
                 }
             }

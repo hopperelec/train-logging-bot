@@ -50,7 +50,7 @@ const REGEX_TO_EMOJI: [RegExp, string][] = [
 
 // Main function
 
-export function normalizeUnits(units: string) {
+export function normalizeUnits(units: string): string {
     units = units
         // Normalise formatting of individual metrocar units
         .replace(METROCAR_FORMATTING_REGEX, (_, __, unit) => `40${unit}`)

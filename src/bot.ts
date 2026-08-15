@@ -13,15 +13,15 @@ import {
     Snowflake,
     BaseMessageOptions,
     ThreadChannel,
-    DMChannel, VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
+    VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
     ChatInputCommandInteraction, GuildMember, StringSelectMenuBuilder,
-    StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent,
+    StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent, MessagePayload,
+    InteractionUpdateOptions,
 } from 'discord.js';
-import { config } from 'dotenv';
 import {normalizeTRN, normalizeUnits} from "./normalisation";
 import {
     DailyLog,
-    ExecutedSubmission, LogAddTransaction, LogTransaction,
+    ExecutedSubmission, LogAddTransaction, LogEntryDetails, LogTransaction,
     Submission,
     TrnCategory
 } from "./types";
@@ -43,7 +43,6 @@ import {
     runTransactions, searchHistoricAllocations
 } from "./db";
 
-config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 if (!DISCORD_TOKEN) {
     console.error('Missing DISCORD_TOKEN environment variable.');
@@ -104,7 +103,7 @@ let contributorGuild: Guild;
 const commandIds: Record<string, Snowflake> = {};
 let currentLogMessage: Message | Partial<Record<TrnCategory, Message>>;
 const unconfirmedSubmissions = new Map<Snowflake, Submission>();
-const unconfirmedIntentSubmissions = new Map<Snowflake, LogAddTransaction>
+const unconfirmedIntentSubmissions = new Map<Snowflake, LogAddTransaction>();
 const submissionsForApproval = new Map<Snowflake, Submission>();
 const executedHistory = new Map<Snowflake, ExecutedSubmission>();
 
@@ -113,11 +112,12 @@ async function logTransaction(message: string | BaseMessageOptions): Promise<voi
     return transactionChannel.send(dontMention(message));
 }
 
-export function addUnconfirmedSubmission(id: Snowflake, submission: Submission) {
+export function addUnconfirmedSubmission(id: Snowflake, submission: Submission): void {
     unconfirmedSubmissions.set(id, submission);
 }
 
-export async function searchMembers(guild: Guild, queries: string[]): Promise<GuildMember[]> {
+export async function searchMembers(guild: Guild | null, queries: string[]): Promise<GuildMember[]> {
+    if (!guild) return [];
     const results = await Promise.all(queries.map(async (query) => {
         try {
             const search = await guild.members.search({ query, limit: 5 });
@@ -140,7 +140,7 @@ function dontMention(message: string | BaseMessageOptions): BaseMessageOptions {
     return message;
 }
 
-function replaceDiscordFeaturesWithNames(text: string) {
+function replaceDiscordFeaturesWithNames(text: string): string {
     return text
         // User mentions
         .replace(/<@!?(\d+)>/g, (_, userId) => {
@@ -161,7 +161,6 @@ function replaceDiscordFeaturesWithNames(text: string) {
             if (channel instanceof VoiceChannel) return `🎤 ${channel.name}`;
             if (channel instanceof ThreadChannel) return `🧵 ${channel.name}`;
             if (channel instanceof CategoryChannel) return `📂 ${channel.name}`;
-            if (channel instanceof DMChannel) return `@${channel.recipient.tag}`;
             return `<#${channelId}>`;
         });
 }
@@ -193,11 +192,11 @@ async function editOrSendLogMessage(message: Message, content: string | BaseMess
             })(),
             removeMessage(message)
         ])
-        return newMessage;
+        return newMessage!;
     }
 }
 
-async function updateLogMessage() {
+async function updateLogMessage(): Promise<void> {
     if (!logChannel) return;
 
     const categories: Record<string, DailyLog> = {};
@@ -207,7 +206,7 @@ async function updateLogMessage() {
         categories[line][trn] = allocs;
     }
 
-    function renderSingleMessageCategory(category: TrnCategory) {
+    function renderSingleMessageCategory(category: TrnCategory): string {
         const entries = categories[category];
         if (!entries || Object.keys(entries).length === 0) return renderEmptyCategory(category);
         return `${CATEGORY_HEADERS[category]}\n${dailyLogToString(entries)}`;
@@ -252,8 +251,12 @@ async function updateLogMessage() {
             currentLogMessage = await editOrSendLogMessage(currentLogMessage, content);
         }
     } else {
-        currentLogMessage.green = await editOrSendLogMessage(currentLogMessage.green, renderMultipleMessageCategory('green'));
-        currentLogMessage.yellow = await editOrSendLogMessage(currentLogMessage.yellow, renderMultipleMessageCategory('yellow'));
+        if (currentLogMessage.green) {
+            currentLogMessage.green = await editOrSendLogMessage(currentLogMessage.green, renderMultipleMessageCategory('green'));
+        }
+        if (currentLogMessage.yellow) {
+            currentLogMessage.yellow = await editOrSendLogMessage(currentLogMessage.yellow, renderMultipleMessageCategory('yellow'));
+        }
         if (currentLogMessage.other) {
             // Modified implementation of `editOrSendMessage` to only re-send if there are other workings
             const content = renderMultipleMessageCategory('other');
@@ -372,7 +375,7 @@ async function submitSubmission(submission: Submission): Promise<string> {
     return '📋 Your gen has been submitted for approval by contributors.';
 }
 
-async function approveSubmission(interaction: ButtonInteraction, submission: Submission) {
+async function approveSubmission(interaction: ButtonInteraction, submission: Submission): Promise<string | MessagePayload | InteractionUpdateOptions> {
     console.log(`Submission ${interaction.message.id} approved by @${interaction.user.tag}`);
 
     const listedTransactions = listTransactions(submission.transactions);
@@ -445,7 +448,7 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
     }
 }
 
-async function denySubmission(interaction: ButtonInteraction, submission: Submission) {
+async function denySubmission(interaction: ButtonInteraction, submission: Submission): Promise<string | MessagePayload | InteractionUpdateOptions> {
     console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
     logTransaction(`❌ ${interaction.message.url} (submission by <@${submission.user.id}>) denied by <@${interaction.user.id}>`).then();
     return {
@@ -478,11 +481,14 @@ async function denySubmission(interaction: ButtonInteraction, submission: Submis
     }
 }
 
-function isContributor(user: User) {
-    return !contributorGuild || contributorGuild.members.cache.get(user.id).roles.cache.some(role => role.id === CONTRIBUTOR_ROLE_ID);
+function isContributor(user: User): boolean {
+    if (!contributorGuild) return false;
+    const member = contributorGuild.members.cache.get(user.id);
+    if (!member) return false;
+    return member.roles.cache.some(role => role.id === CONTRIBUTOR_ROLE_ID);
 }
 
-async function handleCommandInteraction(interaction: ChatInputCommandInteraction) {
+async function handleCommandInteraction(interaction: ChatInputCommandInteraction): Promise<void> {
     if (interaction.commandName === 'ai-log') {
         await aiLogCommand(interaction);
 
@@ -686,14 +692,17 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             await interaction.reply('❌ No allocations have been logged yet today.');
             return;
         }
-        const currentAllocations = Object.fromEntries(
-            Object.entries(todaysLog).map(([trn, allocs]) => [
-                trn,
-                Object.fromEntries(
-                    Object.entries(allocs).filter(([_, details]) => !details.withdrawn)
-                )
-            ]).filter(([_, allocs]) => Object.keys(allocs).length > 0)
-        ) as DailyLog;
+
+        const currentAllocations: DailyLog = {};
+        for (const [trn, allocs] of Object.entries(todaysLog)) {
+            const activeUnits = Object.fromEntries(
+                Object.entries(allocs).filter(([_, details]) => !details.withdrawn)
+            );
+            if (Object.keys(activeUnits).length) {
+                currentAllocations[trn] = activeUnits;
+            }
+        }
+
         if (Object.keys(currentAllocations).length === 0) {
             await interaction.reply('❌ Everything logged today has been marked as withdrawn.');
             return;
@@ -779,7 +788,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         const resultRows = results.map(r => [
             r.date === null || isNaN(r.date.getTime())
                 ? 'INVALID DATE'
-                : r.date.toISOString().split('T')[0],
+                : r.date.toISOString().split('T')[0]!,
             r.trn,
             r.units,
             r.sources,
@@ -788,13 +797,13 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             r.index === null ? '' : r.index.toString()
         ]);
         const allRows = [headers, ...resultRows];
-        const columnWidths = headers.map((_, colIndex) => Math.max(...allRows.map(row => row[colIndex].length)));
+        const columnWidths = headers.map((_, colIndex) => Math.max(...allRows.map(row => row[colIndex]!.length)));
         const table = [
-            headers.map((header, i) => header.padEnd(columnWidths[i])).join(' | '),
+            headers.map((header, i) => header.padEnd(columnWidths[i]!)).join(' | '),
             columnWidths.map(width => '-'.repeat(width)).join('-|-'),
             ...resultRows.map(row =>
                 row.map((cell, i) =>
-                    replaceDiscordFeaturesWithNames(cell).padEnd(columnWidths[i])
+                    replaceDiscordFeaturesWithNames(cell).padEnd(columnWidths[i]!)
                 ).join(' | ')
             )
         ].join('\n');
@@ -818,7 +827,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
     }
 }
 
-async function handleButtonInteraction(interaction: ButtonInteraction) {
+async function handleButtonInteraction(interaction: ButtonInteraction): Promise<void> {
     const [action, uuid] = interaction.customId.split(':');
     if (uuid) {
         if (action === 'clarify-open') {
@@ -930,10 +939,17 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
     console.warn(`Unknown button interaction: ${interaction.customId}`);
 }
 
-async function handleIntentSelectionInteraction(interaction: StringSelectMenuInteraction) {
+async function handleIntentSelectionInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
     const [action, uuid] = interaction.customId.split(':');
     if (action !== 'duplicate-intent') {
         console.warn(`Unknown select menu interaction: ${interaction.customId}`);
+        return;
+    }
+    if (!uuid) {
+        interaction.reply({
+            content: '❌ Your submission has expired. Please try again.',
+            flags: ["Ephemeral"]
+        }).catch(console.error);
         return;
     }
 
@@ -947,7 +963,7 @@ async function handleIntentSelectionInteraction(interaction: StringSelectMenuInt
     }
     const transactionCopy = structuredClone(transaction);
     const transactions: LogTransaction[] = [transactionCopy];
-    const existingAllocs = getAllocationsForTRN(transaction.trn);
+    const existingAllocs = getAllocationsForTRN(transaction.trn) || {};
 
     const selected = interaction.values[0];
     if (selected !== 'keep-duplicate-index') {
@@ -968,7 +984,7 @@ async function handleIntentSelectionInteraction(interaction: StringSelectMenuInt
                         trn: transaction.trn,
                         units,
                         details: {
-                            ...existingAllocs[units],
+                            ...existingAllocs[units]!,
                             withdrawn: true
                         }
                     });
@@ -1002,14 +1018,14 @@ async function handleIntentSelectionInteraction(interaction: StringSelectMenuInt
                 .setDescription(listTransactions(transactions))
         ],
         components: [
-            interaction.message.components[0],
+            interaction.message.components[0] as ActionRow<MessageActionRowComponent>,
             new ActionRowBuilder<ButtonBuilder>().addComponents(confirmButton),
         ]
     }).catch(console.error);
 }
 
-async function handleAutocompleteInteraction(interaction: AutocompleteInteraction) {
-    function emptyResponse() {
+async function handleAutocompleteInteraction(interaction: AutocompleteInteraction): Promise<void> {
+    function emptyResponse(): void {
         interaction.respond([]).catch(console.error);
     }
 
@@ -1053,7 +1069,7 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
             return;
         }
         trn = normalizeTRN(trn);
-        const existingValue: string | number = getAllocation(trn, units)?.[focused.name];
+        const existingValue = getAllocation(trn, units)?.[focused.name as keyof LogEntryDetails];
         if (existingValue === undefined) {
             emptyResponse();
             return;
@@ -1064,7 +1080,7 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
     }
 }
 
-async function startNewLog() {
+async function startNewLog(): Promise<void> {
     submissionsForApproval.clear();
     executedHistory.clear();
     cleanupNLP();
@@ -1079,7 +1095,7 @@ async function startNewLog() {
         if (logChannel) {
             try {
                 if (messageIds.length === 1) {
-                    currentLogMessage = await logChannel.messages.fetch(messageIds[0]);
+                    currentLogMessage = await logChannel.messages.fetch(messageIds[0]!);
                 } else {
                     const messages = await Promise.all(messageIds.map(id => logChannel.messages.fetch(id)));
                     messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
@@ -1113,7 +1129,11 @@ async function startNewLog() {
 }
 
 client.once('clientReady', async () => {
-    console.log(`Logged in as @${client.user.tag}!`);
+    if (client.user) {
+        console.log(`Logged in as @${client.user.tag}!`);
+    } else {
+        console.warn('Logged in, but `client.user` is null.');
+    }
 
     if (LOG_CHANNEL_ID) {
         logChannel = client.channels.cache.get(LOG_CHANNEL_ID) as TextChannel;
@@ -1129,8 +1149,8 @@ client.once('clientReady', async () => {
             process.exit(1);
         }
     }
-    if (CONTRIBUTOR_GUILD_ID) {
-        contributorGuild = client.guilds.cache.get(CONTRIBUTOR_GUILD_ID);
+    if (CONTRIBUTOR_GUILD_ID && CONTRIBUTOR_ROLE_ID) {
+        contributorGuild = client.guilds.cache.get(CONTRIBUTOR_GUILD_ID)!;
         if (!contributorGuild) {
             console.error(`Contributor guild with ID ${CONTRIBUTOR_GUILD_ID} not found.`);
             process.exit(1);
@@ -1149,7 +1169,7 @@ client.once('clientReady', async () => {
         }
     }
 
-    const commands = await client.application.commands.set([
+    const commands = await client.application!.commands.set([
         {
             name: 'ai-log',
             description: 'Amend the log using AI.',
@@ -1349,11 +1369,18 @@ client.on('interactionCreate', async (interaction) => {
         }
     } else if (interaction.isModalSubmit()) {
         const [action,uuid] = interaction.customId.split(':');
+        if (!uuid) {
+            interaction.reply({
+                content: '❌ Your submission has expired. Please try again.',
+                flags: ["Ephemeral"]
+            }).catch(console.error);
+            return;
+        }
         if (action === 'clarify') {
             await clarificationFormSubmission(uuid, interaction);
         } else if (action === 'correction') {
             const submission = unconfirmedSubmissions.get(uuid);
-            if (!('messages' in submission)) {
+            if (!(submission && 'messages' in submission)) {
                 interaction.reply({
                     content: '❌ Sorry, this submission is no longer available.',
                     flags: ["Ephemeral"]
