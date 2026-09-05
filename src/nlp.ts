@@ -3,7 +3,6 @@ import {createGoogleGenerativeAI} from '@ai-sdk/google';
 import {createGroq} from "@ai-sdk/groq";
 import {createOpenRouter} from "@openrouter/ai-sdk-provider";
 import {createOpenAICompatible} from "@ai-sdk/openai-compatible";
-import {config} from "dotenv";
 import { readFileSync } from 'fs';
 import {
     ActionRowBuilder,
@@ -19,7 +18,6 @@ import {getIdLoggers, listTransactions} from "./utils";
 import nlpSchema, {NlpLogEntry, NlpResponse} from "./nlp-schema";
 import {getTodaysLog} from "./db";
 
-config();
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const NVIDIA_NIM_API_KEY = process.env.NVIDIA_NIM_API_KEY;
@@ -41,9 +39,29 @@ if (GOOGLE_AI_API_KEY) {
     const google = createGoogleGenerativeAI({ apiKey: GOOGLE_AI_API_KEY });
     MODELS.push(
         {
-            name: 'Gemini 3 Flash Preview',
-            model: google('gemini-3-flash-preview'),
-            priority: 3 // because it is very slow
+            name: 'Gemini 3.8 Flash',
+            model: google('gemini-3.8-flash'),
+            priority: 5 // This was too high demand for me to test
+        },
+        {
+            name: 'Gemini 3.7 Flash',
+            model: google('gemini-3.7-flash'),
+            priority: 10
+        },
+        {
+            name: 'Gemini 3.6 Flash',
+            model: google('gemini-3.6-flash'),
+            priority: 9
+        },
+        {
+            name: 'Gemini 3.5 Flash',
+            model: google('gemini-3.5-flash'),
+            priority: 8
+        },
+        {
+            name: 'Gemini 3 Flash',
+            model: google('gemini-3-flash'),
+            priority: 7
         },
         {
             name: 'Gemini 2.5 Flash',
@@ -51,18 +69,18 @@ if (GOOGLE_AI_API_KEY) {
             priority: 6
         },
         {
-            name: 'Gemini 3.1 Flash Lite Preview',
-            model: google('gemini-3.1-flash-lite-preview'),
+            name: 'Gemini 3.5 Flash Lite',
+            model: google('gemini-3.5-flash-lite'),
             priority: 2
+        },
+        {
+            name: 'Gemini 3.1 Flash Lite',
+            model: google('gemini-3.1-flash-lite'),
+            priority: 1
         },
         {
             name: 'Gemini 2.5 Flash Lite',
             model: google('gemini-2.5-flash-lite'),
-            priority: 1
-        },
-        {
-            name: 'Gemini 2.0 Flash',
-            model: google('gemini-2.0-flash'),
             priority: 0
         }
     );
@@ -72,7 +90,7 @@ if (GROQ_API_KEY) {
     MODELS.push({
         name: 'gpt-oss-120b via Groq',
         model: groq('openai/gpt-oss-120b'),
-        priority: 5
+        priority: 4
     });
 }
 if (OPENROUTER_API_KEY) {
@@ -80,7 +98,7 @@ if (OPENROUTER_API_KEY) {
     MODELS.push({
         name: 'gpt-oss-120b via OpenRouter',
         model: openrouter('openai/gpt-oss-120b:free'),
-        priority: 4
+        priority: 3
     });
 }
 if (NVIDIA_NIM_API_KEY) {
