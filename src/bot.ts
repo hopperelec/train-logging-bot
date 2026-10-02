@@ -1,3 +1,5 @@
+process.env.TZ = 'Europe/London';
+
 import {
     Client,
     GatewayIntentBits,

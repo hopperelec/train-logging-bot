@@ -11,7 +11,7 @@ This is the Discord bot developed for the [Metrowatch Discord server](https://di
 - [🏠 Hosting your own instance](#-hosting-your-own-instance)
 
 ## ℹ️ How it works
-- Every 3AM (or when the bot starts up), a new log is started.
+- Every 3AM UK time (or when the bot starts up), a new log is started.
 - If a log channel is specified, an initial log message is posted in that channel. 
   - This message is edited throughout the day to reflect the current state of allocations.
   - If the message gets too long, yellow/green/other allocations are split into separate messages.
