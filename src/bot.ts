@@ -18,7 +18,7 @@ import {
     VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
     ChatInputCommandInteraction, GuildMember, StringSelectMenuBuilder,
     StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent, MessagePayload,
-    InteractionUpdateOptions,
+    InteractionUpdateOptions, DiscordAPIError, RESTJSONErrorCodes,
 } from 'discord.js';
 import {normalizeTRN, normalizeUnits} from "./normalisation";
 import {
@@ -36,12 +36,12 @@ import {
 } from "./nlp";
 import {categorizeTRN, dailyLogToString, detailsToString, invertTransactions, listTransactions} from "./utils";
 import {
-    addMessage,
+    addMessageToDb,
     getAllocation,
     getAllocationsForTRN,
     getTodaysLog,
     loadTodaysLog,
-    removeMessage,
+    removeMessageFromDb,
     runTransactions, searchHistoricAllocations
 } from "./db";
 
@@ -78,6 +78,8 @@ let usageMessage: string;
 export const CONTENT_CHARACTER_LIMIT = 2000; // Discord message content character limit
 export const EMBED_DESCRIPTION_CHARACTER_LIMIT = 4096; // Discord embed description character limit
 export const NEW_DAY_HOUR = 3;
+
+const INITIAL_LOG_MESSAGE_CONTENT = '*No allocations have been logged yet today. Check back here later!*';
 
 const CATEGORY_HEADERS = {
     green: '### Green line',
@@ -174,8 +176,27 @@ function renderEmptyCategory(category: TrnCategory): string {
 async function sendLogMessage(content: string | BaseMessageOptions): Promise<Message> {
     if (!logChannel) throw new Error('Log channel is not configured.');
     const message = await logChannel.send(dontMention(content));
-    await addMessage(message);
+    await addMessageToDb(message);
     return message;
+}
+
+// Errors after which a log message can't be edited, so it should be replaced with a new message
+const REPLACE_LOG_MESSAGE_ERROR_CODES = [
+    RESTJSONErrorCodes.UnknownMessage, // The message was deleted
+    RESTJSONErrorCodes.CannotEditMessageAuthoredByAnotherUser, // e.g. the database was previously used with a different bot
+    RESTJSONErrorCodes.MaximumNumberOfEditsToMessagesOlderThanOneHourReached,
+];
+
+function shouldReplaceLogMessage(error: unknown): error is DiscordAPIError {
+    return error instanceof DiscordAPIError && REPLACE_LOG_MESSAGE_ERROR_CODES.includes(error.code as RESTJSONErrorCodes);
+}
+
+async function cleanUpReplacedLogMessage(message: Message, error: DiscordAPIError): Promise<void> {
+    console.warn(`Replaced log message ${message.id} after error ${error.code}: ${error.message}`);
+    await removeMessageFromDb(message).catch(console.error);
+    if (error.code === RESTJSONErrorCodes.MaximumNumberOfEditsToMessagesOlderThanOneHourReached) {
+        await message.delete().catch(console.error);
+    }
 }
 
 async function editOrSendLogMessage(message: Message, content: string | BaseMessageOptions): Promise<Message> {
@@ -185,16 +206,14 @@ async function editOrSendLogMessage(message: Message, content: string | BaseMess
             files: [], // Remove files if they were previously attached
             ...dontMention(content),
         })
-    } catch {
-        // If the message was deleted or something went wrong, send a new one
-        let newMessage: Message;
-        await Promise.all([
-            (async () => {
-                newMessage = await sendLogMessage(content);
-            })(),
-            removeMessage(message)
-        ])
-        return newMessage!;
+    } catch (e) {
+        if (!shouldReplaceLogMessage(e)) {
+            console.error('Failed to edit log message', e);
+            return message;
+        }
+        const newMessage = await sendLogMessage(content);
+        await cleanUpReplacedLogMessage(message, e);
+        return newMessage;
     }
 }
 
@@ -242,7 +261,7 @@ async function updateLogMessageNow(): Promise<void> {
     if (currentLogMessage instanceof Message) {
         let content: string;
         if (!categories.green && !categories.yellow && !categories.other) {
-            content = '*No allocations have been logged yet today. Check back here later!*';
+            content = INITIAL_LOG_MESSAGE_CONTENT;
         } else {
             content = `${renderSingleMessageCategory('green')}\n${renderSingleMessageCategory('yellow')}`;
             if (categories.other) {
@@ -276,12 +295,17 @@ async function updateLogMessageNow(): Promise<void> {
                     files: [], // Remove files if they were previously attached
                     ...dontMention(content),
                 });
-            } catch {
-                if (categories.other) {
-                    currentLogMessage.other = await sendLogMessage(content);
+            } catch (e) {
+                if (!shouldReplaceLogMessage(e)) {
+                    console.error('Failed to edit log message', e);
                 } else {
-                    await removeMessage(currentLogMessage.other);
-                    delete currentLogMessage.other;
+                    const oldMessage = currentLogMessage.other;
+                    if (categories.other) {
+                        currentLogMessage.other = await sendLogMessage(content);
+                    } else {
+                        delete currentLogMessage.other;
+                    }
+                    await cleanUpReplacedLogMessage(oldMessage, e);
                 }
             }
         } else if (categories.other) {
@@ -1098,7 +1122,7 @@ async function startNewLog(): Promise<void> {
     const messageIds = await loadTodaysLog();
     if (messageIds.length === 0) {
         if (logChannel) {
-            currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
+            currentLogMessage = await sendLogMessage(INITIAL_LOG_MESSAGE_CONTENT);
         }
         await logTransaction('📝 New log started');
     } else {
@@ -1115,16 +1139,13 @@ async function startNewLog(): Promise<void> {
                         other: messages[2]
                     };
                 }
-                await updateLogMessage();
             } catch (e) {
                 // Log message(s) not found - re-create them
-                currentLogMessage = await sendLogMessage('*No allocations have been logged yet today. Check back here later!*');
-                await updateLogMessage();
+                currentLogMessage = await sendLogMessage(INITIAL_LOG_MESSAGE_CONTENT);
                 // Do this after, as to not remove them if new ones couldn't be created
-                for (const id of messageIds) {
-                    await removeMessage({ id });
-                }
+                await Promise.all(messageIds.map(id => removeMessageFromDb({ id })));
             }
+            await updateLogMessage();
         }
         await logTransaction('📝 Existing log loaded');
     }

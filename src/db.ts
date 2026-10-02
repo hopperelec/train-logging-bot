@@ -59,13 +59,13 @@ export function getTodaysLog(): DailyLog {
     return structuredClone(todaysLog);
 }
 
-export async function removeMessage(message: {id: string}): Promise<void> {
+export async function removeMessageFromDb(message: {id: string}): Promise<void> {
     await prisma.message.delete({
         where: { id: message.id },
     });
 }
 
-export async function addMessage(message: {id: string}): Promise<void> {
+export async function addMessageToDb(message: {id: string}): Promise<void> {
     await prisma.message.create({
         data: {
             id: message.id,
