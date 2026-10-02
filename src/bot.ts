@@ -264,8 +264,8 @@ async function updateLogMessage(): Promise<void> {
             const content = renderMultipleMessageCategory('other');
             try {
                 currentLogMessage.other = await currentLogMessage.other.edit({
+                    files: [], // Remove files if they were previously attached
                     ...dontMention(content),
-                    files: [] // Remove files if they were previously attached
                 });
             } catch {
                 if (categories.other) {
