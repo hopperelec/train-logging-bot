@@ -780,8 +780,9 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             notes,
             withdrawn,
         });
+        await deferReplyPromise;
         if (results.length === 0) {
-            await interaction.reply('❌ No matching allocations were found in the historic log.');
+            await interaction.editReply('❌ No matching allocations were found in the historic log.');
             return;
         }
 
@@ -809,7 +810,6 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             )
         ].join('\n');
 
-        await deferReplyPromise;
         const messageContent = `📚 Found ${results.length} matching allocation(s) in the historic log.\n\`\`\`\n${table}\n\`\`\``;
         if (messageContent.length <= CONTENT_CHARACTER_LIMIT) {
             await interaction.editReply(messageContent);
