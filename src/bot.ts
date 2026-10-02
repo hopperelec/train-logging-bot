@@ -797,16 +797,14 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             r.notes || '',
             r.withdrawn ? 'Withdrawn' : '',
             r.index === null ? '' : r.index.toString()
-        ]);
+        ].map(replaceDiscordFeaturesWithNames));
         const allRows = [headers, ...resultRows];
         const columnWidths = headers.map((_, colIndex) => Math.max(...allRows.map(row => row[colIndex]!.length)));
         const table = [
             headers.map((header, i) => header.padEnd(columnWidths[i]!)).join(' | '),
             columnWidths.map(width => '-'.repeat(width)).join('-|-'),
             ...resultRows.map(row =>
-                row.map((cell, i) =>
-                    replaceDiscordFeaturesWithNames(cell).padEnd(columnWidths[i]!)
-                ).join(' | ')
+                row.map((cell, i) => cell.padEnd(columnWidths[i]!)).join(' | ')
             )
         ].join('\n');
 
