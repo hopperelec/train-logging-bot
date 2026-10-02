@@ -649,7 +649,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
     } else if (interaction.commandName === 'search-trn') {
         const trn = normalizeTRN(interaction.options.get('trn', true).value as string);
         const existingAllocs = getAllocationsForTRN(trn);
-        if (existingAllocs) {
+        if (Object.keys(existingAllocs).length) {
             await interaction.reply(dontMention(dailyLogToString({ [trn]: existingAllocs })));
         } else {
             await interaction.reply(`❌ Nothing has been logged for TRN "${trn}" today.`);
