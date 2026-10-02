@@ -481,8 +481,9 @@ async function denySubmission(interaction: ButtonInteraction, submission: Submis
     }
 }
 
+// If no contributor role is configured, everyone is treated as a contributor
 function isContributor(user: User): boolean {
-    if (!contributorGuild) return false;
+    if (!contributorGuild) return true;
     const member = contributorGuild.members.cache.get(user.id);
     if (!member) return false;
     return member.roles.cache.some(role => role.id === CONTRIBUTOR_ROLE_ID);
