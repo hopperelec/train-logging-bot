@@ -198,7 +198,16 @@ async function editOrSendLogMessage(message: Message, content: string | BaseMess
     }
 }
 
-async function updateLogMessage(): Promise<void> {
+let logMessageUpdateQueue: Promise<void> = Promise.resolve();
+// Updates are queued so that concurrent updates can't, for example, both split the log and send duplicate messages
+function updateLogMessage(): Promise<void> {
+    const update = logMessageUpdateQueue.then(updateLogMessageNow);
+    // Don't let one failed update prevent later ones from running (the caller still gets the error)
+    logMessageUpdateQueue = update.catch(() => {});
+    return update;
+}
+
+async function updateLogMessageNow(): Promise<void> {
     if (!logChannel) return;
 
     const categories: Record<string, DailyLog> = {};
