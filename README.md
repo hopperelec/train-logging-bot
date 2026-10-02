@@ -43,13 +43,17 @@ I understand that generative AI is controversial, so I want to emphasize that:
 - **for server owners:** the AI features are entirely optional and can be disabled by not providing any API keys
 
 The following models and providers are supported. When multiple API keys are provided and no model is explicitly selected by a user, they will be used in the order listed below, falling back to the next if one fails (e.g. due to rate limiting or quota exhaustion):
+- Gemini 3.7 Flash
+- Gemini 3.6 Flash
+- Gemini 3.5 Flash
+- Gemini 3 Flash
 - Gemini 2.5 Flash
+- Gemini 3.8 Flash
 - gpt-oss-120b via Groq
 - gpt-oss-120b via OpenRouter
-- Gemini 3 Flash Preview
-- Gemini 3.1 Flash Lite Preview
+- Gemini 3.5 Flash Lite
+- Gemini 3.1 Flash Lite
 - Gemini 2.5 Flash Lite
-- Gemini 2.0 Flash
 - gpt-oss-120b via NVIDIA NIM
 
 The LLM is provided with a lot of context, instructions and examples to ensure it understands queries correctly. This is provided via its system prompt which you can view in [nlp-system-prompt.md](nlp-system-prompt.md).
@@ -167,8 +171,8 @@ You will need a server (a physical one, not just a Discord server) to host the b
    ```bash
    bun prisma:deploy
    ```
-5. Edit `/usage` message in `src/bot.ts` (search for "**About this bot**" - it is currently hardcoded for Metrowatch) to suit your server.
-6. Edit the emojis prepended to metrocars and Class 555 units in `src/normalization.ts` (search for `:metrocar:` and `:class555:` - these are currently hardcoded for Metrowatch) to suit your server. You will need the IDs of the custom emojis you want to use.
+5. Edit the `/usage` message in `src/bot.ts` (search for `usageMessage =` - it is currently hardcoded for Metrowatch) to suit your server.
+6. Edit the emojis prepended to units in `src/normalisation.ts` (search for `REGEX_TO_EMOJI` - these are currently hardcoded for Metrowatch) to suit your server. You will need the IDs of the custom emojis you want to use.
 7. Start the bot
    ```bash
    bun start
@@ -183,7 +187,7 @@ To update to the latest version:
    ```
    If there are any merge conflicts (e.g. if you modified any files), you can either try to resolve them manually, or you can discard your local changes and reset to the latest version from the repository
    ```bash
-   git reset --hard origin/main
+   git reset --hard origin/master
    ```
    If you reset, you will need to re-apply any customizations you made (e.g. step 5 and 6 from the installation instructions).
 2. Update dependencies
