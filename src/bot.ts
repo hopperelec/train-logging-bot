@@ -77,6 +77,7 @@ let usageMessage: string;
 
 export const CONTENT_CHARACTER_LIMIT = 2000; // Discord message content character limit
 export const EMBED_DESCRIPTION_CHARACTER_LIMIT = 4096; // Discord embed description character limit
+export const AUTOCOMPLETE_CHOICE_CHARACTER_LIMIT = 100; // Discord autocomplete choice name/value character limit
 export const NEW_DAY_HOUR = 3;
 
 const INITIAL_LOG_MESSAGE_CONTENT = '*No allocations have been logged yet today. Check back here later!*';
@@ -1070,15 +1071,19 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
         interaction.respond([]).catch(console.error);
     }
 
+    function respond(suggestions: string[]): void {
+        interaction.respond(
+            [...new Set(suggestions)]
+                .filter(suggestion => suggestion.length <= AUTOCOMPLETE_CHOICE_CHARACTER_LIMIT)
+                .map(suggestion => ({ name: suggestion, value: suggestion }))
+                .slice(0, 25)
+        ).catch(console.error);
+    }
+
     const focused = interaction.options.getFocused(true);
     if (focused.name === 'trn') {
         const trn = (focused.value as string).toLowerCase();
-        interaction.respond(
-            Object.keys(getTodaysLog())
-                .filter(key => key.toLowerCase().includes(trn))
-                .map(key => ({ name: key, value: key }))
-                .slice(0, 25)
-        ).catch(console.error);
+        respond(Object.keys(getTodaysLog()).filter(key => key.toLowerCase().includes(trn)));
     } else if (focused.name === 'units') {
         let trn = interaction.options.get('trn')?.value as string;
         if (!trn) {
@@ -1096,12 +1101,7 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
             ...(existingUnits ? Object.keys(existingUnits) : []),
             ...otherLoggedUnits
         ];
-        interaction.respond(
-            suggestions
-                .filter(key => key.toLowerCase().includes(units))
-                .map(units => ({ name: units, value: units }))
-                .slice(0, 25)
-        ).catch(console.error);
+        respond(suggestions.filter(key => key.toLowerCase().includes(units)));
     } else {
         let trn = interaction.options.get('trn')?.value as string;
         const units = interaction.options.get('units')?.value as string;
@@ -1115,9 +1115,7 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
             emptyResponse();
             return;
         }
-        interaction.respond([
-            { name: existingValue.toString(), value: existingValue.toString() }
-        ]).catch(console.error);
+        respond([existingValue.toString()]);
     }
 }
 
