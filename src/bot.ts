@@ -18,7 +18,7 @@ import {
     VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
     ChatInputCommandInteraction, GuildMember, StringSelectMenuBuilder,
     StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent, MessagePayload,
-    InteractionUpdateOptions, DiscordAPIError, RESTJSONErrorCodes,
+    InteractionUpdateOptions, DiscordAPIError, RESTJSONErrorCodes, Interaction,
 } from 'discord.js';
 import {normalizeTRN, normalizeUnits} from "./normalisation";
 import {
@@ -116,9 +116,10 @@ const unconfirmedIntentSubmissions = new Map<Snowflake, LogAddTransaction>();
 const submissionsForApproval = new Map<Snowflake, Submission>();
 const executedHistory = new Map<Snowflake, ExecutedSubmission>();
 
+// Never throws, since failing to log a transaction shouldn't interrupt the transaction itself
 async function logTransaction(message: string | BaseMessageOptions): Promise<void | Message> {
     if (!transactionChannel) return;
-    return transactionChannel.send(dontMention(message));
+    return transactionChannel.send(dontMention(message)).catch(console.error);
 }
 
 export function addUnconfirmedSubmission(id: Snowflake, submission: Submission): void {
@@ -457,7 +458,7 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
             name: `Submission - ${new Date().toISOString().split('T')[0]} - ${submission.user.tag}.txt`,
             attachment: Buffer.from(replaceDiscordFeaturesWithNames(listedTransactions))
         }] : [],
-    }).then();
+    });
 
     return {
         embeds: [
@@ -491,7 +492,7 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
 
 async function denySubmission(interaction: ButtonInteraction, submission: Submission): Promise<string | MessagePayload | InteractionUpdateOptions> {
     console.log(`Submission ${interaction.message.id} denied by @${interaction.user.tag}`);
-    logTransaction(`❌ ${interaction.message.url} (submission by <@${submission.user.id}>) denied by <@${interaction.user.id}>`).then();
+    logTransaction(`❌ ${interaction.message.url} (submission by <@${submission.user.id}>) denied by <@${interaction.user.id}>`);
     return {
         embeds: [
             new EmbedBuilder()
@@ -938,7 +939,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
                     .setDescription(listedTransactions)
                     .setFooter({ text: `Undone by ${interaction.user.tag}`, iconURL: executed.user.displayAvatarURL() })
             ]
-        }).then();
+        });
         interaction.message.edit({
             content: `↩️ This action has been undone by <@${interaction.user.id}>.`,
             components: []
@@ -1415,6 +1416,25 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+    try {
+        await handleInteraction(interaction);
+    } catch (e) {
+        // Without this, the error would be unhandled, which would stop the bot
+        console.error(`Error handling interaction ${interaction.id}`, e);
+        if (!interaction.isRepliable()) return;
+        const content = '❌ Sorry, something went wrong. Please try again later.';
+        if (!interaction.deferred && !interaction.replied) {
+            interaction.reply({ content, flags: ["Ephemeral"] }).catch(console.error);
+        } else if (interaction.deferred && !interaction.replied && (interaction.isCommand() || interaction.isModalSubmit())) {
+            // Replace the "thinking" message. Not done for message components, since that would edit the message the component is on.
+            interaction.editReply(content).catch(console.error);
+        } else {
+            interaction.followUp({ content, flags: ["Ephemeral"] }).catch(console.error);
+        }
+    }
+});
+
+async function handleInteraction(interaction: Interaction): Promise<void> {
     if (interaction.isChatInputCommand()) {
         await handleCommandInteraction(interaction);
     } else if (interaction.isButton()) {
@@ -1452,7 +1472,7 @@ client.on('interactionCreate', async (interaction) => {
             await nlpCorrectionFormSubmission(interaction, submission);
         }
     }
-});
+}
 
 client.login(DISCORD_TOKEN).catch(e => {
     console.error('Failed to log in to Discord', e);
