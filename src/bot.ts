@@ -105,7 +105,12 @@ let approvalChannel: TextChannel;
 let transactionChannel: TextChannel;
 let contributorGuild: Guild;
 const commandIds: Record<string, Snowflake> = {};
-let currentLogMessage: Message | Partial<Record<TrnCategory, Message>>;
+// Undefined if there's currently no log message, in which case one will be sent with the next update
+let currentLogMessage: Message | Partial<Record<TrnCategory, Message>> | undefined;
+// While true (including before the first log is started, the log message isn't updated,
+//  so that a new one isn't sent before the new log has been loaded,
+//  and the previous one isn't overwritten if the new log fails to load
+let startingNewLog = true;
 const unconfirmedSubmissions = new Map<Snowflake, Submission>();
 const unconfirmedIntentSubmissions = new Map<Snowflake, LogAddTransaction>();
 const submissionsForApproval = new Map<Snowflake, Submission>();
@@ -199,8 +204,9 @@ async function cleanUpReplacedLogMessage(message: Message, error: DiscordAPIErro
     }
 }
 
-async function editOrSendLogMessage(message: Message, content: string | BaseMessageOptions): Promise<Message> {
+async function editOrSendLogMessage(message: Message | undefined, content: string | BaseMessageOptions): Promise<Message> {
     if (!logChannel) throw new Error('Log channel is not configured.');
+    if (!message) return sendLogMessage(content);
     try {
         return await message.edit({
             files: [], // Remove files if they were previously attached
@@ -227,7 +233,7 @@ function updateLogMessage(): Promise<void> {
 }
 
 async function updateLogMessageNow(): Promise<void> {
-    if (!logChannel) return;
+    if (!logChannel || startingNewLog) return;
 
     const categories: Record<string, DailyLog> = {};
     for (const [trn, allocs] of Object.entries(getTodaysLog())) {
@@ -258,7 +264,7 @@ async function updateLogMessageNow(): Promise<void> {
         return content;
     }
 
-    if (currentLogMessage instanceof Message) {
+    if (!currentLogMessage || currentLogMessage instanceof Message) {
         let content: string;
         if (!categories.green && !categories.yellow && !categories.other) {
             content = INITIAL_LOG_MESSAGE_CONTENT;
@@ -1115,48 +1121,56 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
 }
 
 async function startNewLog(): Promise<void> {
+    startingNewLog = true;
+    currentLogMessage = undefined;
     submissionsForApproval.clear();
     executedHistory.clear();
     cleanupNLP();
 
     const messageIds = await loadTodaysLog();
-    if (messageIds.length === 0) {
-        if (logChannel) {
-            currentLogMessage = await sendLogMessage(INITIAL_LOG_MESSAGE_CONTENT);
-        }
-        await logTransaction('📝 New log started');
-    } else {
-        if (logChannel) {
-            try {
-                if (messageIds.length === 1) {
-                    currentLogMessage = await logChannel.messages.fetch(messageIds[0]!);
-                } else {
-                    const messages = await Promise.all(messageIds.map(id => logChannel.messages.fetch(id)));
-                    messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-                    currentLogMessage = {
-                        green: messages[0],
-                        yellow: messages[1],
-                        other: messages[2]
-                    };
-                }
-            } catch (e) {
-                // Log message(s) not found - re-create them
-                currentLogMessage = await sendLogMessage(INITIAL_LOG_MESSAGE_CONTENT);
-                // Do this after, as to not remove them if new ones couldn't be created
-                await Promise.all(messageIds.map(id => removeMessageFromDb({ id })));
+    if (logChannel && messageIds.length !== 0) {
+        try {
+            if (messageIds.length === 1) {
+                currentLogMessage = await logChannel.messages.fetch(messageIds[0]!);
+            } else {
+                const messages = await Promise.all(messageIds.map(id => logChannel.messages.fetch(id)));
+                messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+                currentLogMessage = {
+                    green: messages[0],
+                    yellow: messages[1],
+                    other: messages[2]
+                };
             }
-            await updateLogMessage();
+        } catch (e) {
+            // Log message(s) not found, so they'll be re-created by the update below
+            await Promise.all(messageIds.map(id => removeMessageFromDb({ id })));
         }
-        await logTransaction('📝 Existing log loaded');
     }
+    startingNewLog = false;
+    await updateLogMessage();
+    await logTransaction(messageIds.length === 0 ? '📝 New log started' : '📝 Existing log loaded');
+}
 
+function scheduleNewLog(): void {
     const now = new Date();
     const nextRun = new Date();
     nextRun.setHours(NEW_DAY_HOUR, 0, 0, 0);
     if (now.getHours() >= NEW_DAY_HOUR) {
         nextRun.setDate(nextRun.getDate() + 1);
     }
-    setTimeout(startNewLog, nextRun.getTime() - now.getTime());
+    setTimeout(startScheduledNewLog, nextRun.getTime() - now.getTime());
+}
+
+async function startScheduledNewLog(): Promise<void> {
+    try {
+        await startNewLog();
+    } catch (e) {
+        // Starting a new log can safely be retried, since it picks up wherever the failed attempt got to
+        console.error('Failed to start new log, retrying in a minute', e);
+        setTimeout(startScheduledNewLog, 60 * 1000);
+        return;
+    }
+    scheduleNewLog();
 }
 
 client.once('clientReady', async () => {
@@ -1380,7 +1394,9 @@ client.once('clientReady', async () => {
     }
     usageMessage = `I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to make changes to the log: manually, using </log-allocation:${commandIds['log-allocation']}> and </remove-allocation:${commandIds['remove-allocation']}>, or with natural language, using </ai-log:${commandIds['ai-log']}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Check <#1429595223939612823> for more details.`
 
+    // Not retried, since failing on startup more likely means something is misconfigured
     await startNewLog();
+    scheduleNewLog();
 });
 
 client.on('interactionCreate', async (interaction) => {
