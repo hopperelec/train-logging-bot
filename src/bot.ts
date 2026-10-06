@@ -1129,21 +1129,34 @@ async function startNewLog(): Promise<void> {
 
     const messageIds = await loadTodaysLog();
     if (logChannel && messageIds.length !== 0) {
-        try {
-            if (messageIds.length === 1) {
-                currentLogMessage = await logChannel.messages.fetch(messageIds[0]!);
+        const results = await Promise.allSettled(messageIds.map(id => logChannel.messages.fetch(id)));
+        const messages: Message[] = [];
+        let anyDeleted = false;
+        for (const result of results) {
+            if (result.status === 'fulfilled') {
+                messages.push(result.value);
+            } else if (result.reason instanceof DiscordAPIError && result.reason.code === RESTJSONErrorCodes.UnknownMessage) {
+                anyDeleted = true;
             } else {
-                const messages = await Promise.all(messageIds.map(id => logChannel.messages.fetch(id)));
-                messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-                currentLogMessage = {
-                    green: messages[0],
-                    yellow: messages[1],
-                    other: messages[2]
-                };
+                // Probably a temporary error, so fail (to be retried) rather than assuming the message was deleted
+                throw result.reason;
             }
-        } catch (e) {
-            // Log message(s) not found, so they'll be re-created by the update below
-            await Promise.all(messageIds.map(id => removeMessageFromDb({ id })));
+        }
+        if (anyDeleted) {
+            // They'll all be re-created by the update below, so delete any remaining ones to avoid leaving outdated duplicates
+            await Promise.all([
+                ...messageIds.map(id => removeMessageFromDb({ id })),
+                ...messages.map(message => message.delete().catch(console.error)),
+            ]);
+        } else if (messages.length === 1) {
+            currentLogMessage = messages[0];
+        } else {
+            messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+            currentLogMessage = {
+                green: messages[0],
+                yellow: messages[1],
+                other: messages[2]
+            };
         }
     }
     startingNewLog = false;
