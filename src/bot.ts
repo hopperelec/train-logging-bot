@@ -1123,6 +1123,8 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
 async function startNewLog(): Promise<void> {
     startingNewLog = true;
     currentLogMessage = undefined;
+    unconfirmedSubmissions.clear();
+    unconfirmedIntentSubmissions.clear();
     submissionsForApproval.clear();
     executedHistory.clear();
     cleanupNLP();
