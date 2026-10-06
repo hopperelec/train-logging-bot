@@ -1407,7 +1407,7 @@ client.once('clientReady', async () => {
     for (const command of commands.values()) {
         commandIds[command.name] = command.id;
     }
-    usageMessage = `I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to make changes to the log: manually, using </log-allocation:${commandIds['log-allocation']}> and </remove-allocation:${commandIds['remove-allocation']}>, or with natural language, using </ai-log:${commandIds['ai-log']}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval. Once approved, it will be added to <#${logChannel.id}>. Check <#1429595223939612823> for more details.`
+    usageMessage = `I'm the bot used for logging trains spotted day by day on the Tyne and Wear Metro network. There are two ways to make changes to the log: manually, using </log-allocation:${commandIds['log-allocation']}> and </remove-allocation:${commandIds['remove-allocation']}>, or with natural language, using </ai-log:${commandIds['ai-log']}>. Once you've made a submission, it will be sent to Metrowatch's contributor team for approval.${logChannel ? ` Once approved, it will be added to <#${logChannel.id}>.` : ''} Check <#1429595223939612823> for more details.`
 
     // Not retried, since failing on startup more likely means something is misconfigured
     await startNewLog();
