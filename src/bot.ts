@@ -1454,4 +1454,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
-client.login(process.env.DISCORD_TOKEN).catch(console.error);
+client.login(DISCORD_TOKEN).catch(e => {
+    console.error('Failed to log in to Discord', e);
+    process.exit(1);
+});
