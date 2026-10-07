@@ -581,6 +581,13 @@ export async function aiLogContextMenu(interaction: MessageContextMenuCommandInt
     }
 
     const prompt = interaction.targetMessage.content;
+    if (!prompt.trim()) {
+        await interaction.reply({
+            content: "❌ That message doesn't have any text for the AI to log.",
+            flags: ['Ephemeral']
+        }).catch(console.error);
+        return;
+    }
     console.log(`AI Log Context Menu invoked by @${interaction.user.tag} on message ${interaction.targetMessage.id}`);
     await runPrompt(interaction, formatInitialPrompt(prompt, interaction.targetMessage.author));
 }
