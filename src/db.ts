@@ -8,7 +8,7 @@ let todaysLog: DailyLog = {};
 let dayId: number;
 
 const prisma = new PrismaClient({
-    adapter: new PrismaBunSqlite({ url: 'file:./train-logs.db' })
+    adapter: new PrismaBunSqlite({ url: process.env.DATABASE_URL || 'file:./train-logs.db' })
 });
 
 // Returns any existing message IDs

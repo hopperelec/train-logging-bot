@@ -6,6 +6,6 @@ export default defineConfig({
         path: 'prisma/migrations',
     },
     datasource: {
-        url: 'file:./train-logs.db',
+        url: process.env.DATABASE_URL || 'file:./train-logs.db',
     }
 });

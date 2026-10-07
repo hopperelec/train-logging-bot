@@ -144,6 +144,9 @@ The bot is configured using the following environment variables. You can provide
 - `NVIDIA_NIM_API_KEY`: API key for NVIDIA NIM from [here](https://build.nvidia.com/settings/api-keys)
 - `GROQ_API_KEY`: API key for Groq from [here](https://console.groq.com/keys)
 
+**Other**
+- `DATABASE_URL`: The SQLite database to use. Defaults to `file:./train-logs.db`.
+
 Behaviour if approval channel and/or contributor role are not provided:
 - If neither `APPROVAL_CHANNEL_ID` nor `CONTRIBUTOR_ROLE_ID` are provided, all submissions will be applied directly to the log without approval.
 - If `APPROVAL_CHANNEL_ID` is provided but `CONTRIBUTOR_ROLE_ID` is not, all submissions will first go to the approval channel, but anyone with access to that channel can approve them.
