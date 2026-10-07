@@ -613,7 +613,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         }
 
         const existingAllocs = getAllocationsForTRN(trn);
-        if (existingAllocs && Object.values(existingAllocs).some(alloc => (alloc.index || 0) === (index || 0))) {
+        if (Object.values(existingAllocs).some(alloc => (alloc.index || 0) === (index || 0))) {
             console.log(`User @${interaction.user.tag} attempted to log an allocation with a duplicate index for TRN ${trn}. Awaiting confirmation on intent.`);
             unconfirmedIntentSubmissions.set(interaction.id, transaction);
             await interaction.reply({
@@ -1035,7 +1035,7 @@ async function handleIntentSelectionInteraction(interaction: StringSelectMenuInt
     }
     const transactionCopy = structuredClone(transaction);
     const transactions: LogTransaction[] = [transactionCopy];
-    const existingAllocs = getAllocationsForTRN(transaction.trn) || {};
+    const existingAllocs = getAllocationsForTRN(transaction.trn);
 
     const selected = interaction.values[0];
     if (selected !== 'keep-duplicate-index') {
