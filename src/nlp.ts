@@ -148,12 +148,11 @@ function loadWikiData(): void {
 }
 
 function getNextMidnightPT(now: Date): Date {
-    const reset = new Date();
-    reset.setUTCHours(8, 0, 0, 0); // 00:00 PT is 08:00 UTC
-    if (reset.getTime() <= now.getTime()) {
-        reset.setDate(reset.getDate() + 1);
-    }
-    return reset;
+    const nextMidnight = Temporal.Instant.fromEpochMilliseconds(now.getTime())
+        .toZonedDateTimeISO('America/Los_Angeles')
+        .add({ days: 1 })
+        .startOfDay();
+    return new Date(nextMidnight.epochMilliseconds);
 }
 
 async function runPrompt(
