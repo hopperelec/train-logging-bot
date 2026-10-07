@@ -13,7 +13,8 @@ import {
     ModalSubmitInteraction, InteractionEditReplyOptions, Message,
 } from "discord.js";
 import {JSONModal, LogTransaction, Model, NLPConversation, NlpSubmission} from "./types";
-import {addUnconfirmedSubmission, CONTENT_CHARACTER_LIMIT, searchMembers} from "./bot";
+import {addUnconfirmedSubmission, searchMembers} from "./bot";
+import {CONTENT_CHARACTER_LIMIT} from "./constants";
 import {getIdLoggers, listTransactions} from "./utils";
 import nlpSchema, {NlpLogEntry, NlpResponse} from "./nlp-schema";
 import {getAllocation, getTodaysLog} from "./db";

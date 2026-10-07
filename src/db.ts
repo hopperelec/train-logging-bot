@@ -1,6 +1,6 @@
 import { PrismaClient } from "../generated/prisma/client";
 import {DailyLog, LogEntryDetails, LogTransaction} from "./types";
-import {NEW_DAY_HOUR} from "./bot";
+import {NEW_DAY_HOUR} from "./constants";
 import {PrismaBunSqlite} from "prisma-adapter-bun-sqlite";
 import {normaliseDetails} from "./normalisation";
 

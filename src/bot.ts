@@ -50,6 +50,13 @@ import {
     removeMessageFromDb,
     runTransactions, searchHistoricAllocations
 } from "./db";
+import {
+    AUTOCOMPLETE_CHOICE_CHARACTER_LIMIT,
+    CONTENT_CHARACTER_LIMIT,
+    EMBED_DESCRIPTION_CHARACTER_LIMIT,
+    EMBED_FIELD_CHARACTER_LIMIT,
+    NEW_DAY_HOUR
+} from "./constants";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 if (!DISCORD_TOKEN) {
@@ -80,12 +87,6 @@ if (!APPROVAL_CHANNEL_ID && !CONTRIBUTOR_ROLE_ID) {
 }
 
 let usageMessage: string;
-
-export const CONTENT_CHARACTER_LIMIT = 2000; // Discord message content character limit
-export const EMBED_DESCRIPTION_CHARACTER_LIMIT = 4096; // Discord embed description character limit
-export const EMBED_FIELD_CHARACTER_LIMIT = 1024; // Discord embed field value character limit
-export const AUTOCOMPLETE_CHOICE_CHARACTER_LIMIT = 100; // Discord autocomplete choice name/value character limit
-export const NEW_DAY_HOUR = 3;
 
 const INITIAL_LOG_MESSAGE_CONTENT = '*No allocations have been logged yet today. Check back here later!*';
 
