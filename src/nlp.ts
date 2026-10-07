@@ -16,7 +16,7 @@ import {JSONModal, LogTransaction, Model, NLPConversation, NlpSubmission} from "
 import {addUnconfirmedSubmission, CONTENT_CHARACTER_LIMIT, searchMembers} from "./bot";
 import {getIdLoggers, listTransactions} from "./utils";
 import nlpSchema, {NlpLogEntry, NlpResponse} from "./nlp-schema";
-import {getTodaysLog} from "./db";
+import {getAllocation, getTodaysLog} from "./db";
 import {normaliseDetails} from "./normalisation";
 
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
@@ -271,6 +271,8 @@ async function runPrompt(
                             // Adding the same allocation twice would fail when applied, so only the last transaction for each allocation is kept
                             const transactionsByAllocation = new Map<string, LogTransaction>();
                             let hadDuplicates = false;
+                            let hadMalformed = false;
+                            let hadInvalidRemovals = false;
                             function addTransaction(transaction: LogTransaction) {
                                 const key = JSON.stringify([transaction.trn, transaction.units]);
                                 if (transactionsByAllocation.delete(key)) {
@@ -287,10 +289,16 @@ async function runPrompt(
                                     typeof transaction.units === 'string'
                                 )) {
                                     warnWithId('AI provided malformed transaction', transaction);
+                                    hadMalformed = true;
                                     continue;
                                 }
                                 if (transaction.type === 'remove') {
-                                    addTransaction(transaction);
+                                    if (getAllocation(transaction.trn, transaction.units)) {
+                                        addTransaction(transaction);
+                                    } else {
+                                        warnWithId('AI tried to remove an allocation that does not exist', transaction);
+                                        hadInvalidRemovals = true;
+                                    }
                                     continue;
                                 }
                                 // Move details into 'details' object
@@ -303,6 +311,7 @@ async function runPrompt(
                                     (details.withdrawn === undefined || typeof details.withdrawn === 'boolean')
                                 )) {
                                     warnWithId('AI provided malformed transaction', transaction);
+                                    hadMalformed = true;
                                     continue;
                                 }
                                 addTransaction({type, trn, units, details: normaliseDetails(details)});
@@ -325,7 +334,13 @@ async function runPrompt(
                                 listTransactions(transactions)
                             ];
                             if (hadDuplicates) {
-                                lines.push("⚠️ The AI tried to change some of the same allocations more than once, so only its last change to each is shown. Please check these carefully, and make a correction if anything is missing.");
+                                lines.push("⚠️ The AI tried to change some of the same allocations more than once, so only its last change to each is shown.");
+                            }
+                            if (hadMalformed) {
+                                lines.push("⚠️ The AI provided some malformed changes which have been ignored.");
+                            }
+                            if (hadInvalidRemovals) {
+                                lines.push("⚠️ The AI tried to remove some allocations that do not exist. These removals have been ignored.");
                             }
                             if (response.object.user_notes) {
                                 lines.push(`**Notes about how the AI interpreted your query:** ${response.object.user_notes}`);
