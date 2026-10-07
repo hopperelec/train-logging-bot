@@ -665,11 +665,21 @@ export async function clarificationFormSubmission(uuid: string, interaction: Mod
         return;
     }
     clarificationForms.delete(uuid);
+
+    const answers: Record<string, string | readonly string[]> = {};
+    for (const [id, field] of interaction.fields.fields) {
+        if ('value' in field) {
+            answers[id] = field.value;
+        } else if ('values' in field) {
+            answers[id] = field.values.length === 1 ? field.values[0]! : field.values;
+        }
+    }
+
     await runPrompt(interaction, [
         ...form.messages,
         {
             role: 'user',
-            content: JSON.stringify(interaction.fields.fields),
+            content: JSON.stringify(answers),
         }
     ], form.userSpecifiedModel);
 }
