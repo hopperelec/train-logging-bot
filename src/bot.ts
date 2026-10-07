@@ -895,6 +895,15 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
         }
 
         if (action === 'nlp-correction') {
+            // Checked before opening the form, so that the user doesn't write a correction just to be told this afterwards
+            const submission = unconfirmedSubmissions.get(uuid);
+            if (!(submission && 'messages' in submission)) {
+                interaction.reply({
+                    content: '❌ Sorry, this submission is no longer available.',
+                    flags: ["Ephemeral"]
+                }).catch(console.error);
+                return;
+            }
             await openNlpCorrectionForm(uuid, interaction);
             return;
         }
