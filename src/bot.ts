@@ -18,7 +18,7 @@ import {
     VoiceChannel, CategoryChannel, ThreadOnlyChannel, BaseGuildTextChannel, AutocompleteInteraction,
     ChatInputCommandInteraction, GuildMember, StringSelectMenuBuilder,
     StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent, MessagePayload,
-    InteractionUpdateOptions, DiscordAPIError, RESTJSONErrorCodes, Interaction,
+    InteractionUpdateOptions, DiscordAPIError, RESTJSONErrorCodes, Interaction, AttachmentPayload,
 } from 'discord.js';
 import {normalizeTRN, normalizeUnits} from "./normalisation";
 import {
@@ -77,6 +77,7 @@ let usageMessage: string;
 
 export const CONTENT_CHARACTER_LIMIT = 2000; // Discord message content character limit
 export const EMBED_DESCRIPTION_CHARACTER_LIMIT = 4096; // Discord embed description character limit
+export const EMBED_FIELD_CHARACTER_LIMIT = 1024; // Discord embed field value character limit
 export const AUTOCOMPLETE_CHOICE_CHARACTER_LIMIT = 100; // Discord autocomplete choice name/value character limit
 export const NEW_DAY_HOUR = 3;
 
@@ -174,6 +175,37 @@ function replaceDiscordFeaturesWithNames(text: string): string {
             if (channel instanceof CategoryChannel) return `📂 ${channel.name}`;
             return `<#${channelId}>`;
         });
+}
+
+// Embed descriptions have a character limit, so long lists of transactions are attached as a file instead.
+// They also can't be empty, which can happen if every transaction is removing an allocation that doesn't exist.
+function describeTransactions(listedTransactions: string, user: User): {
+    description: string,
+    files: AttachmentPayload[]
+} {
+    if (listedTransactions.length === 0) {
+        return { description: '*No changes*', files: [] };
+    }
+    if (listedTransactions.length <= EMBED_DESCRIPTION_CHARACTER_LIMIT) {
+        return { description: listedTransactions, files: [] };
+    }
+    return {
+        description: 'The list of changes is too long to display here, so they have been attached as a file.',
+        files: [{
+            name: `Submission - ${new Date().toISOString().split('T')[0]} - ${user.tag}.txt`,
+            attachment: Buffer.from(replaceDiscordFeaturesWithNames(listedTransactions))
+        }]
+    };
+}
+
+function addSummaryField(embed: EmbedBuilder, submission: Submission): EmbedBuilder {
+    if ('summary' in submission && submission.summary) {
+        const summary = submission.summary.length <= EMBED_FIELD_CHARACTER_LIMIT
+            ? submission.summary
+            : `${submission.summary.slice(0, EMBED_FIELD_CHARACTER_LIMIT - 1)}…`;
+        embed.addFields({ name: 'Summary', value: summary });
+    }
+    return embed;
 }
 
 function renderEmptyCategory(category: TrnCategory): string {
@@ -336,24 +368,16 @@ async function submitSubmission(submission: Submission): Promise<string> {
         await updateLogMessage();
         console.log(`Submission by contributor @${submission.user.tag} applied directly to log:\n${listedTransactionsConsole}`);
 
+        const { description, files } = describeTransactions(listedTransactionsEmojis, submission.user);
         const embed = new EmbedBuilder()
             .setTitle('Train log amended')
             .setColor(0x00ff00)
-            .setDescription(
-                listedTransactionsEmojis.length <= EMBED_DESCRIPTION_CHARACTER_LIMIT
-                    ? listedTransactionsEmojis
-                    : 'The list of changes is too long to display here, so they have been attached as a file.'
-            )
+            .setDescription(description)
             .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() });
-        if ('summary' in submission && submission.summary) {
-            embed.addFields({ name: 'Summary', value: submission.summary });
-        }
+        addSummaryField(embed, submission);
         const message = await logTransaction({
             embeds: [embed],
-            files: listedTransactionsEmojis.length > EMBED_DESCRIPTION_CHARACTER_LIMIT ? [{
-                name: `Submission - ${new Date().toISOString().split('T')[0]} - ${submission.user.tag}.txt`,
-                attachment: Buffer.from(replaceDiscordFeaturesWithNames(listedTransactionsEmojis))
-            }] : [],
+            files,
             components: [
                 new ActionRowBuilder<ButtonBuilder>()
                     .addComponents(
@@ -376,26 +400,16 @@ async function submitSubmission(submission: Submission): Promise<string> {
     }
     if (!approvalChannel) return '❌ Only contributors can update the log right now.';
 
-    const listedTransactions = listTransactions(submission.transactions);
-
+    const { description, files } = describeTransactions(listTransactions(submission.transactions), submission.user);
     const embed = new EmbedBuilder()
         .setTitle('Train gen submission')
         .setColor(0xff9900)
-        .setDescription(
-            listedTransactions.length <= EMBED_DESCRIPTION_CHARACTER_LIMIT
-                ? listedTransactions
-                : 'The list of changes is too long to display here, so they have been attached as a file.'
-        )
+        .setDescription(description)
         .setFooter({ text: `By ${submission.user.tag}`, iconURL: submission.user.displayAvatarURL() });
-    if ('summary' in submission && submission.summary) {
-        embed.addFields({ name: 'Summary', value: submission.summary });
-    }
+    addSummaryField(embed, submission);
     const message = await approvalChannel.send({
         embeds: [embed],
-        files: listedTransactions.length > EMBED_DESCRIPTION_CHARACTER_LIMIT ? [{
-            name: `Submission - ${new Date().toISOString().split('T')[0]} - ${submission.user.tag}.txt`,
-            attachment: Buffer.from(replaceDiscordFeaturesWithNames(listedTransactions))
-        }] : [],
+        files,
         components: [
             new ActionRowBuilder<ButtonBuilder>()
                 .addComponents(
@@ -437,28 +451,20 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
         undoTransactions: inverse
     });
 
+    const { description, files } = describeTransactions(listedTransactions, submission.user);
     const embed = new EmbedBuilder()
         .setTitle('Train log amended')
         .setColor(0x00ff00)
-        .setDescription(
-            listedTransactions.length <= EMBED_DESCRIPTION_CHARACTER_LIMIT
-                ? listedTransactions
-                : 'The list of changes is too long to display here, so they have been attached as a file.'
-        )
+        .setDescription(description)
         .setFooter({
             text: `Submission by ${submission.user.tag}, approved by ${interaction.user.tag}`,
             iconURL: submission.user.displayAvatarURL()
         });
-    if ('summary' in submission && submission.summary) {
-        embed.addFields({ name: 'Summary', value: submission.summary });
-    }
+    addSummaryField(embed, submission);
     logTransaction({
         content: `✅ ${interaction.message.url} (submission by <@${submission.user.id}>) approved by <@${interaction.user.id}>`,
         embeds: [embed],
-        files: listedTransactions.length > EMBED_DESCRIPTION_CHARACTER_LIMIT ? [{
-            name: `Submission - ${new Date().toISOString().split('T')[0]} - ${submission.user.tag}.txt`,
-            attachment: Buffer.from(replaceDiscordFeaturesWithNames(listedTransactions))
-        }] : [],
+        files,
     });
 
     return {
@@ -466,7 +472,8 @@ async function approveSubmission(interaction: ButtonInteraction, submission: Sub
             new EmbedBuilder()
                 .setTitle('Train gen approved')
                 .setColor(0x00ff00)
-                .setDescription(listedTransactions)
+                // If the changes are too long, the file attached to the submission is kept
+                .setDescription(description)
                 .setFooter({
                     text: `Submission by ${submission.user.tag}, approved by ${interaction.user.tag}`,
                     iconURL: submission.user.displayAvatarURL()
@@ -499,7 +506,8 @@ async function denySubmission(interaction: ButtonInteraction, submission: Submis
             new EmbedBuilder()
                 .setTitle('Train gen denied')
                 .setColor(0xff0000)
-                .setDescription(listTransactions(submission.transactions))
+                // If the changes are too long, the file attached to the submission is kept
+                .setDescription(describeTransactions(listTransactions(submission.transactions), submission.user).description)
                 .setFooter({
                     text: `Submission by ${submission.user.tag}, denied by ${interaction.user.tag}`,
                     iconURL: submission.user.displayAvatarURL()
@@ -931,15 +939,17 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
         executedHistory.delete(interaction.message.id);
 
         console.log(`Action ${interaction.message.id} undone by @${interaction.user.tag}`);
+        const { description, files } = describeTransactions(listedTransactions, interaction.user);
         logTransaction({
             content: `↩️ ${interaction.message.url} (action by <@${executed.user.id}>) undone by <@${interaction.user.id}>`,
             embeds: [
                 new EmbedBuilder()
                     .setTitle('Train log amended')
                     .setColor(0xff0000)
-                    .setDescription(listedTransactions)
+                    .setDescription(description)
                     .setFooter({ text: `Undone by ${interaction.user.tag}`, iconURL: executed.user.displayAvatarURL() })
-            ]
+            ],
+            files
         });
         interaction.message.edit({
             content: `↩️ This action has been undone by <@${interaction.user.id}>.`,
