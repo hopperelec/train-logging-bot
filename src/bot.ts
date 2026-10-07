@@ -20,7 +20,7 @@ import {
     StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent, MessagePayload,
     InteractionUpdateOptions, DiscordAPIError, RESTJSONErrorCodes, Interaction, AttachmentPayload,
 } from 'discord.js';
-import {normaliseDetails, normaliseInputUnits, normaliseTRN, unitsWithEmojis} from "./normalisation";
+import {normaliseDetails, normaliseInputTRN, normaliseInputUnits, unitsWithEmojis} from "./normalisation";
 import {
     DailyLog,
     ExecutedSubmission, LogAddTransaction, LogEntryDetails, LogTransaction,
@@ -551,7 +551,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         await aiLogCommand(interaction);
 
     } else if (interaction.commandName === 'log-allocation') {
-        const trn = normaliseTRN(interaction.options.get('trn', true).value as string);
+        const trn = normaliseInputTRN(interaction.options.get('trn', true).value as string);
         const units = normaliseInputUnits(trn, interaction.options.get('units', true).value as string);
         const sources = (interaction.options.get('sources')?.value || `<@${interaction.user.id}>`) as string;
         const notes = interaction.options.get('notes')?.value as string | undefined;
@@ -681,7 +681,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         interaction.editReply(result).catch(console.error);
 
     } else if (interaction.commandName === 'remove-allocation') {
-        const trn = normaliseTRN(interaction.options.get('trn', true).value as string);
+        const trn = normaliseInputTRN(interaction.options.get('trn', true).value as string);
         const units = normaliseInputUnits(trn, interaction.options.get('units', true).value as string);
         const existingAlloc = getAllocation(trn, units);
         if (!existingAlloc) {
@@ -704,7 +704,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         interaction.editReply(result).catch(console.error);
 
     } else if (interaction.commandName === 'search-trn') {
-        const trn = normaliseTRN(interaction.options.get('trn', true).value as string);
+        const trn = normaliseInputTRN(interaction.options.get('trn', true).value as string);
         const existingAllocs = getAllocationsForTRN(trn);
         if (Object.keys(existingAllocs).length) {
             await interaction.reply(dontMention(dailyLogToString({ [trn]: existingAllocs })));
@@ -1108,7 +1108,7 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
             emptyResponse();
             return;
         }
-        trn = normaliseTRN(trn);
+        trn = normaliseInputTRN(trn);
         const units = (focused.value as string).toLowerCase();
         const todaysLog = getTodaysLog();
         const existingUnits = todaysLog[trn]
@@ -1128,7 +1128,7 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
             emptyResponse();
             return;
         }
-        trn = normaliseTRN(trn);
+        trn = normaliseInputTRN(trn);
         const existingValue = getAllocation(trn, units)?.[focused.name as keyof LogEntryDetails];
         if (existingValue === undefined) {
             emptyResponse();

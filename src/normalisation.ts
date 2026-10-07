@@ -1,13 +1,25 @@
 // This was complicated enough to warrant a dedicated file.
 
 import {LogEntryDetails, TRN} from "./types";
-import {getAllocation} from "./db";
+import {getAllocation, getAllocationsForTRN} from "./db";
 
 // --- TRN ---
 
-const THREE_DIGIT_REGEX = new RegExp(/^t?\d{3}$/);
+const THREE_DIGIT_REGEX = new RegExp(/^t?(\d{3})$/i);
+const NETWORK_RAIL_REGEX = new RegExp(/^2I(\d{2})$/);
 export function normaliseTRN(trn: TRN): TRN {
-    return THREE_DIGIT_REGEX.test(trn) ? `T${trn.slice(-3)}` : trn;
+    trn = trn.trim();
+    const threeDigits = trn.match(THREE_DIGIT_REGEX)?.[1];
+    if (threeDigits) return `T${threeDigits}`;
+    const networkRailDigits = trn.match(NETWORK_RAIL_REGEX)?.[1];
+    if (networkRailDigits) return `T1${networkRailDigits}`;
+    return trn;
+}
+
+// Normalises a TRN provided by a user or the AI, unless something is already logged under that exact TRN
+//  (e.g. logged before TRNs were normalised this way), so that existing allocations can still be found
+export function normaliseInputTRN(trn: TRN): TRN {
+    return Object.keys(getAllocationsForTRN(trn)).length !== 0 ? trn : normaliseTRN(trn);
 }
 
 // --- Details ---

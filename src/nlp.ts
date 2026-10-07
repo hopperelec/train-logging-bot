@@ -17,7 +17,7 @@ import {addUnconfirmedSubmission, CONTENT_CHARACTER_LIMIT, searchMembers} from "
 import {getIdLoggers, listTransactions} from "./utils";
 import nlpSchema, {NlpLogEntry, NlpResponse} from "./nlp-schema";
 import {getAllocation, getTodaysLog} from "./db";
-import {normaliseDetails, normaliseInputUnits} from "./normalisation";
+import {normaliseDetails, normaliseInputTRN, normaliseInputUnits} from "./normalisation";
 
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -312,7 +312,13 @@ async function runPrompt(
                                     hadMalformed = true;
                                     continue;
                                 }
-                                addTransaction({type, trn, units: normaliseInputUnits(trn, units), details: normaliseDetails(details)});
+                                const normalisedTrn = normaliseInputTRN(trn);
+                                addTransaction({
+                                    type,
+                                    trn: normalisedTrn,
+                                    units: normaliseInputUnits(normalisedTrn, units),
+                                    details: normaliseDetails(details)
+                                });
                             }
 
                             const transactions = [...transactionsByAllocation.values()];
