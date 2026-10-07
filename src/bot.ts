@@ -45,6 +45,7 @@ import {
     addMessageToDb,
     getAllocation,
     getAllocationsForTRN,
+    getLogDateString,
     getTodaysLog,
     loadTodaysLog,
     removeMessageFromDb,
@@ -199,7 +200,7 @@ function describeTransactions(listedTransactions: string, user: User): {
     return {
         description: 'The list of changes is too long to display here, so they have been attached as a file.',
         files: [{
-            name: `Submission - ${new Date().toISOString().split('T')[0]} - ${user.tag}.txt`,
+            name: `Submission - ${getLogDateString()} - ${user.tag}.txt`,
             attachment: Buffer.from(replaceDiscordFeaturesWithNames(listedTransactions))
         }]
     };
@@ -297,7 +298,7 @@ async function updateLogMessageNow(): Promise<void> {
             return {
                 content: `${CATEGORY_HEADERS[category]}\nToo many ${CATEGORY_DISPLAY_NAMES[category]} have been logged today to fit in a single message, so they have been attached as a file.`,
                 files: [{
-                    name: `Log - ${new Date().toISOString().split('T')[0]} - ${category}.txt`,
+                    name: `Log - ${getLogDateString()} - ${category}.txt`,
                     attachment: Buffer.from(replaceDiscordFeaturesWithNames(content))
                 }]
             };
@@ -736,7 +737,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             await interaction.reply({
                 content: `🔍 Search results for unit "${query}" are too long to display here, so they have been attached as a file.`,
                 files: [{
-                    name: `Search results - ${new Date().toISOString().split('T')[0]} - ${query}.txt`,
+                    name: `Search results - ${getLogDateString()} - ${query}.txt`,
                     attachment: Buffer.from(replaceDiscordFeaturesWithNames(description))
                 }]
             });
@@ -789,7 +790,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
             await interaction.reply({
                 content: `📋 Too many non-withdrawn allocations have been logged today to display here, so they have been attached as a file.`,
                 files: [{
-                    name: `Current allocations - ${new Date().toISOString().split('T')[0]}.txt`,
+                    name: `Current allocations - ${getLogDateString()}.txt`,
                     attachment: Buffer.from(replaceDiscordFeaturesWithNames(description))
                 }]
             })

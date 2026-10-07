@@ -6,6 +6,7 @@ import {normaliseDetails} from "./normalisation";
 
 let todaysLog: DailyLog = {};
 let dayId: number;
+let logDateString: string;
 
 const prisma = new PrismaClient({
     adapter: new PrismaBunSqlite({ url: process.env.DATABASE_URL || 'file:./train-logs.db' })
@@ -20,7 +21,8 @@ export async function loadTodaysLog(): Promise<string[]> {
         date.setDate(date.getDate() - 1);
     }
     date.setHours(NEW_DAY_HOUR, 0, 0, 0);
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = date.toISOString().split('T')[0]!;
+    logDateString = dateStr;
 
     const existingDay = await prisma.day.findUnique({
         where: { date: date },
@@ -58,6 +60,11 @@ export async function loadTodaysLog(): Promise<string[]> {
 
 export function getTodaysLog(): DailyLog {
     return structuredClone(todaysLog);
+}
+
+// The date of the log currently being recorded (YYYY-MM-DD), which is still the previous day until NEW_DAY_HOUR
+export function getLogDateString(): string {
+    return logDateString;
 }
 
 export async function removeMessageFromDb(message: {id: string}): Promise<void> {
