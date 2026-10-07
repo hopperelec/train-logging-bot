@@ -123,7 +123,6 @@ if (MODELS.length === 0) {
 } else {
     MODELS.sort((a, b) => b.priority - a.priority);
     systemPrompt = readFileSync('nlp-system-prompt.md', 'utf-8');
-    loadWikiData();
 }
 
 export function getModelNames(): string[] {
@@ -722,7 +721,8 @@ export async function nlpCorrectionFormSubmission(
     await runPrompt(interaction, messages, originalSubmission.userSpecifiedModel);
 }
 
+// Called whenever a new log is started, including on startup
 export function cleanup(): void {
     clarificationForms.clear();
-    loadWikiData();
+    if (MODELS.length !== 0) loadWikiData();
 }
