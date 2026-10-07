@@ -38,7 +38,7 @@ This is the Discord bot developed for the [Metrowatch Discord server](https://di
 ## ✨ Natural language (AI) logging
 When using the `/ai-log` slash command or `Log with AI` context menu command, the message is provided to a Large Language Model (LLM) similar to ChatGPT. To make sure the LLM understands the intent correctly, it might ask for clarification. Once it understands the intent, it will produce a sequence of "transactions" (additions or removals) to update the log corresponding to the query. The user will be asked to confirm its changes before they are submitted (to the approval channel if specified and the user is not a contributor). If the LLM made a mistake, the user can provide a correction.
 
-I understand that generative AI is controversial, so I want to emphasize that:
+I understand that generative AI is controversial, so I want to emphasise that:
 - **for users:** AI has absolutely no involvement in changes made with `/log-allocation` or `/remove-allocation` and you are not obligated to use the AI features at all. Furthermore, no changes (whether manual or AI-assisted) will enter the log without first being approved by both you *and* one of our contributors.
 - **for server owners:** the AI features are entirely optional and can be disabled by not providing any API keys
 
@@ -167,7 +167,7 @@ You will need a server (a physical one, not just a Discord server) to host the b
    cp .env.example .env
    ```
    Then edit `.env` to add your configuration.
-4. Initialize the database
+4. Initialise the database
    ```bash
    bun prisma:deploy
    ```

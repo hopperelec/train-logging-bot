@@ -2,7 +2,7 @@ import { PrismaClient } from "../generated/prisma/client";
 import {DailyLog, LogEntryDetails, LogTransaction} from "./types";
 import {NEW_DAY_HOUR} from "./bot";
 import {PrismaBunSqlite} from "prisma-adapter-bun-sqlite";
-import {normalizeDetails} from "./normalisation";
+import {normaliseDetails} from "./normalisation";
 
 let todaysLog: DailyLog = {};
 let dayId: number;
@@ -37,7 +37,7 @@ export async function loadTodaysLog(): Promise<string[]> {
                 trnAllocations = {};
                 todaysLog[allocation.trn] = trnAllocations;
             }
-            trnAllocations[allocation.units] = normalizeDetails({
+            trnAllocations[allocation.units] = normaliseDetails({
                 sources: allocation.sources,
                 notes: allocation.notes ?? undefined,
                 index: allocation.index,

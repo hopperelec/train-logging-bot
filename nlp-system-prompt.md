@@ -94,7 +94,7 @@ The JSON must have a "type" field which is one of "accept", "clarify", "reject",
 ## Accepting a query
 An "accept" response must also have a "transactions" field listing one or more transactions. A transaction is either an "add" or a "remove".
 An "accept" response can optionally also have a "user_notes" field to explain any assumptions you've made or why you have ignored part of the query.
-An "accept" response can optionally also have a "summary" field to summarize the changes made to contributors if it involves multiple allocations.
+An "accept" response can optionally also have a "summary" field to summarise the changes made to contributors if it involves multiple allocations.
 An "add" transaction adds a new allocation or updates the details (sources, notes, index, withdrawn) of an existing allocation. Note that, when updating one detail of an existing allocation, you must still include all other details of that allocation in the transaction. To remove a detail (e.g. notes), you can just not include it in the transaction.
 A "remove" transaction removes an existing allocation and must only include the TRN and units of the allocation to remove. You must only remove allocations that are outright incorrect or that use an 'x' where a more specific unit number is now known.
 You must not add or remove the same TRN and units more than once in the same query. If someone says that an existing TRN+units is incorrect, or if they provide a more specific unit number where an 'x' is currently used, you must remove the old allocation and add the corrected allocation as separate transactions. You do not need to remove an allocation just because the TRN or units have changed (e.g. due to a swap).

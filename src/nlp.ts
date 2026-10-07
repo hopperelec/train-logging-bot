@@ -17,7 +17,7 @@ import {addUnconfirmedSubmission, CONTENT_CHARACTER_LIMIT, searchMembers} from "
 import {getIdLoggers, listTransactions} from "./utils";
 import nlpSchema, {NlpLogEntry, NlpResponse} from "./nlp-schema";
 import {getTodaysLog} from "./db";
-import {normalizeDetails} from "./normalisation";
+import {normaliseDetails} from "./normalisation";
 
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -294,7 +294,7 @@ async function runPrompt(
                                     warnWithId('AI provided malformed transaction', transaction);
                                     continue;
                                 }
-                                transactions.push({type, trn, units, details: normalizeDetails(details)});
+                                transactions.push({type, trn, units, details: normaliseDetails(details)});
                             }
                             if (transactions.length === 0) {
                                 warnWithId('AI accepted but provided no valid transactions');

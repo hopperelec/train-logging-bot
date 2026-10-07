@@ -1,5 +1,5 @@
 import {DailyLog, LogEntry, LogEntryDetails, LogTransaction, TRN, TrnCategory} from "./types";
-import {normalizeUnits} from "./normalisation";
+import {normaliseUnits} from "./normalisation";
 import {Snowflake} from "discord.js";
 import {getTodaysLog} from "./db";
 
@@ -20,7 +20,7 @@ export function getIdLoggers(id: Snowflake): {
 }
 
 const TRN_REGEX = new RegExp(/^T?(\d{3})/);
-export function categorizeTRN(trn: TRN): TrnCategory {
+export function categoriseTRN(trn: TRN): TrnCategory {
     const match = trn.match(TRN_REGEX);
     if (!match) return 'other';
     const number = +match[1]!;
@@ -36,7 +36,7 @@ export function dailyLogToString(dailyLog: DailyLog): string {
             const sortedAllocations = Object.entries(allocations)
                 .sort(([,a], [,b]) => (a.index ?? 0) - (b.index ?? 0));
             const descriptions = sortedAllocations.map(([units, details]) => {
-                units = normalizeUnits(units);
+                units = normaliseUnits(units);
                 if (details.withdrawn) units = `~~${units}~~`;
                 if (details.notes) units += ` (${details.notes})`;
                 return units;
