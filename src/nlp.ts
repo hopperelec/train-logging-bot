@@ -558,7 +558,10 @@ function formatInitialPrompt(prompt: string, user: User): NLPConversation {
 
 export async function aiLogCommand(interaction: ChatInputCommandInteraction): Promise<void> {
     if (MODELS.length === 0) {
-        await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
+        await interaction.reply({
+            content: 'AI logging is currently unavailable. Contact the bot developer if you believe this is an error.',
+            flags: ['Ephemeral']
+        }).catch(console.error);
         return;
     }
 
@@ -571,7 +574,10 @@ export async function aiLogCommand(interaction: ChatInputCommandInteraction): Pr
     if (modelName) {
         model = MODELS.find(m => m.name === modelName);
         if (!model) {
-            await interaction.reply(`Model "${modelName}" not found.`).catch(console.error);
+            await interaction.reply({
+                content: `Model "${modelName}" not found.`,
+                flags: ['Ephemeral']
+            }).catch(console.error);
             return;
         }
     }
@@ -581,7 +587,10 @@ export async function aiLogCommand(interaction: ChatInputCommandInteraction): Pr
 
 export async function aiLogContextMenu(interaction: MessageContextMenuCommandInteraction): Promise<void> {
     if (MODELS.length === 0) {
-        await interaction.reply('AI logging is currently unavailable. Contact the bot developer if you believe this is an error.').catch(console.error);
+        await interaction.reply({
+            content: 'AI logging is currently unavailable. Contact the bot developer if you believe this is an error.',
+            flags: ['Ephemeral']
+        }).catch(console.error);
         return;
     }
 

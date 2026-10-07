@@ -808,7 +808,10 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         if (dateFromStr) {
             dateFrom = new Date(dateFromStr);
             if (isNaN(dateFrom.getTime())) {
-                await interaction.reply('❌ Invalid date format for "date-from". Please use YYYY-MM-DD format.');
+                await interaction.reply({
+                    content: '❌ Invalid date format for "date-from". Please use YYYY-MM-DD format.',
+                    flags: ["Ephemeral"]
+                });
                 return;
             }
             dateFrom.setHours(0, 0, 0, 0);
@@ -817,7 +820,10 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         if (dateToStr) {
             dateTo = new Date(dateToStr);
             if (isNaN(dateTo.getTime())) {
-                await interaction.reply('❌ Invalid date format for "date-to". Please use YYYY-MM-DD format.');
+                await interaction.reply({
+                    content: '❌ Invalid date format for "date-to". Please use YYYY-MM-DD format.',
+                    flags: ["Ephemeral"]
+                });
                 return;
             }
             dateTo.setHours(23, 59, 59, 999);
