@@ -268,7 +268,18 @@ async function runPrompt(
                                 return true;
                             }
 
-                            const transactions: LogTransaction[] = [];
+                            // Adding the same allocation twice would fail when applied, so only the last transaction for each allocation is kept
+                            const transactionsByAllocation = new Map<string, LogTransaction>();
+                            let hadDuplicates = false;
+                            function addTransaction(transaction: LogTransaction) {
+                                const key = JSON.stringify([transaction.trn, transaction.units]);
+                                if (transactionsByAllocation.delete(key)) {
+                                    warnWithId('AI changed the same allocation more than once', transaction);
+                                    hadDuplicates = true;
+                                }
+                                transactionsByAllocation.set(key, transaction);
+                            }
+
                             for (const transaction of response.object.transactions) {
                                 if (!(
                                     'type' in transaction &&
@@ -279,7 +290,7 @@ async function runPrompt(
                                     continue;
                                 }
                                 if (transaction.type === 'remove') {
-                                    transactions.push(transaction);
+                                    addTransaction(transaction);
                                     continue;
                                 }
                                 // Move details into 'details' object
@@ -294,8 +305,10 @@ async function runPrompt(
                                     warnWithId('AI provided malformed transaction', transaction);
                                     continue;
                                 }
-                                transactions.push({type, trn, units, details: normaliseDetails(details)});
+                                addTransaction({type, trn, units, details: normaliseDetails(details)});
                             }
+
+                            const transactions = [...transactionsByAllocation.values()];
                             if (transactions.length === 0) {
                                 warnWithId('AI accepted but provided no valid transactions');
                                 let message = 'The AI accepted your query but did not provide any valid changes to make.';
@@ -311,6 +324,9 @@ async function runPrompt(
                                 "**Do these changes look correct?**",
                                 listTransactions(transactions)
                             ];
+                            if (hadDuplicates) {
+                                lines.push("⚠️ The AI tried to change some of the same allocations more than once, so only its last change to each is shown. Please check these carefully, and make a correction if anything is missing.");
+                            }
                             if (response.object.user_notes) {
                                 lines.push(`**Notes about how the AI interpreted your query:** ${response.object.user_notes}`);
                             }
