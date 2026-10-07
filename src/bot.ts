@@ -110,10 +110,10 @@ const client = new Client({
     ]
 });
 
-let logChannel: TextChannel;
-let approvalChannel: TextChannel;
-let transactionChannel: TextChannel;
-let contributorGuild: Guild;
+let logChannel: TextChannel | undefined;
+let approvalChannel: TextChannel | undefined;
+let transactionChannel: TextChannel | undefined;
+let contributorGuild: Guild | undefined;
 const commandIds: Record<string, Snowflake> = {};
 // Undefined if there's currently no log message, in which case one will be sent with the next update
 let currentLogMessage: Message | Partial<Record<TrnCategory, Message>> | undefined;
@@ -1160,8 +1160,10 @@ async function startNewLog(): Promise<void> {
     cleanupNLP();
 
     const messageIds = await loadTodaysLog();
-    if (logChannel && messageIds.length !== 0) {
-        const results = await Promise.allSettled(messageIds.map(id => logChannel.messages.fetch(id)));
+    // Copied to a const so that TypeScript knows it's still defined inside the callback below
+    const channel = logChannel;
+    if (channel && messageIds.length !== 0) {
+        const results = await Promise.allSettled(messageIds.map(id => channel.messages.fetch(id)));
         const messages: Message[] = [];
         let anyDeleted = false;
         for (const result of results) {
