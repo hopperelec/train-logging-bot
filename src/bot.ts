@@ -591,14 +591,9 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
                 content: '⚠️ This allocation has already been logged but with different details. Do you want to update the existing allocation?',
                 embeds: [
                     new EmbedBuilder()
-                        .setTitle('Existing details')
+                        .setTitle('Changes that will be made')
                         .setColor(0xffcc00)
-                        .setFields(
-                            { name: 'Sources', value: existingAlloc.sources },
-                            { name: 'Notes', value: existingAlloc.notes || '*None*' },
-                            { name: 'Index', value: existingAlloc.index !== undefined ? existingAlloc.index.toString() : '*None*' },
-                            { name: 'Withdrawn', value: existingAlloc.withdrawn ? 'Yes' : 'No' }
-                        )
+                        .setDescription(listTransactions([transaction]))
                 ],
                 components: [
                     new ActionRowBuilder<ButtonBuilder>()
