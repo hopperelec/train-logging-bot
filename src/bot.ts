@@ -1094,13 +1094,14 @@ async function handleAutocompleteInteraction(interaction: AutocompleteInteractio
         const units = (focused.value as string).toLowerCase();
         const todaysLog = getTodaysLog();
         const existingUnits = todaysLog[trn]
-        const otherLoggedUnits = Object.entries(todaysLog)
-            .filter(([key]) => key !== trn)
-            .flatMap(([,allocations]) => Object.keys(allocations));
-        const suggestions = [
-            ...(existingUnits ? Object.keys(existingUnits) : []),
-            ...otherLoggedUnits
-        ];
+        const suggestions = existingUnits ? Object.keys(existingUnits) : [];
+        if (interaction.commandName === 'log-allocation') {
+            suggestions.push(
+                ...Object.entries(todaysLog)
+                    .filter(([key]) => key !== trn)
+                    .flatMap(([,allocations]) => Object.keys(allocations))
+            );
+        }
         respond(suggestions.filter(key => key.toLowerCase().includes(units)));
     } else {
         let trn = interaction.options.get('trn')?.value as string;
