@@ -25,7 +25,7 @@ export function normaliseDetails(details: LogEntryDetails): LogEntryDetails {
 // --- Description ---
 
 // Formatting correction regexes
-const METROCAR_FORMATTING_REGEX = new RegExp(/(?<!\d)(599|994|4) ?[0xX?]([\dx?]{2})(?!\d)/g);
+const METROCAR_FORMATTING_REGEX = new RegExp(/(?<!\d)(599|994|4) ?[0xX?]([\dxX?]{2})(?!\d)/g);
 const CLASS_555_FORMATTING_REGEX = new RegExp(/(?<!\d)(555|5) ?([\dxX?]{3})(?!\d)/g);
 
 const NORMALISED_METROCAR = "40[\\dxX?]{2}";
@@ -51,13 +51,14 @@ const METROCAR_COUPLING_REGEX3 = new RegExp(
 );
 
 // Emojis
+const UNKNOWN_UNIT_REGEX = new RegExp(/[xX?]/);
 const UNKNOWN_UNIT_EMOJI = ":question:";
 const METROCAR_EMOJI = "<:metrocar:1499879530695757934>";
 const REGEX_TO_EMOJI: [RegExp, string][] = [
     [new RegExp(/^4001$/), "<:prototype_metrocar:1499880342243250377>"],
     [new RegExp(`^${NORMALISED_METROCAR}$`), METROCAR_EMOJI],
-    [new RegExp(/^5550[\dx?]{2}$/), "<:class555:1499879618239529020>"],
-    [new RegExp(/^BL[123x]$/), "<:batteryloco:1499879926386397204>"],
+    [new RegExp(/^5550[\dxX?]{2}$/), "<:class555:1499879618239529020>"],
+    [new RegExp(/^BL[123xX]$/), "<:batteryloco:1499879926386397204>"],
     [new RegExp(/^MA[ _-]?60$/), "<:MA60:1499879986801283142>"],
 ];
 
@@ -102,7 +103,7 @@ export function normaliseUnits(units: string): string {
             emojis.length = 1;
         }
         // If any unit is unknown, add the unknown unit emoji at the start
-        if (units.includes("x") || units.includes("?")) {
+        if (UNKNOWN_UNIT_REGEX.test(units)) {
             if (emojis.length > 1) {
                 // If there are multiple unit emojis, add a space for readability
                 emojis.unshift(" ");
