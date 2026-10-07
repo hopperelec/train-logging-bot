@@ -20,7 +20,7 @@ import {
     StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent, MessagePayload,
     InteractionUpdateOptions, DiscordAPIError, RESTJSONErrorCodes, Interaction, AttachmentPayload,
 } from 'discord.js';
-import {normaliseDetails, normaliseTRN, normaliseUnits} from "./normalisation";
+import {normaliseDetails, normaliseInputUnits, normaliseTRN, unitsWithEmojis} from "./normalisation";
 import {
     DailyLog,
     ExecutedSubmission, LogAddTransaction, LogEntryDetails, LogTransaction,
@@ -34,7 +34,13 @@ import {
     clarificationFormSubmission, nlpCorrectionFormSubmission,
     openClarificationForm, openNlpCorrectionForm, getModelNames
 } from "./nlp";
-import {categoriseTRN, dailyLogToString, detailsToString, invertTransactions, listTransactions} from "./utils";
+import {
+    categoriseTRN,
+    dailyLogToString,
+    detailsToString,
+    invertTransactions,
+    listTransactions
+} from "./utils";
 import {
     addMessageToDb,
     getAllocation,
@@ -546,7 +552,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
 
     } else if (interaction.commandName === 'log-allocation') {
         const trn = normaliseTRN(interaction.options.get('trn', true).value as string);
-        const units = interaction.options.get('units', true).value as string;
+        const units = normaliseInputUnits(trn, interaction.options.get('units', true).value as string);
         const sources = (interaction.options.get('sources')?.value || `<@${interaction.user.id}>`) as string;
         const notes = interaction.options.get('notes')?.value as string | undefined;
         const index = interaction.options.get('index')?.value as number | undefined;
@@ -676,7 +682,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
 
     } else if (interaction.commandName === 'remove-allocation') {
         const trn = normaliseTRN(interaction.options.get('trn', true).value as string);
-        const units = interaction.options.get('units', true).value as string;
+        const units = normaliseInputUnits(trn, interaction.options.get('units', true).value as string);
         const existingAlloc = getAllocation(trn, units);
         if (!existingAlloc) {
             await interaction.reply({
@@ -767,7 +773,7 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
                 const trnDescription = Object.entries(allocations)
                     .sort(([,a], [,b]) => (a.index ?? 0) - (b.index ?? 0))
                     .map(([units, details]) => {
-                        units = normaliseUnits(units);
+                        units = unitsWithEmojis(units);
                         if (details.notes) units += ` (${details.notes})`;
                         return units;
                     })

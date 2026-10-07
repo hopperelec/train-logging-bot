@@ -1,6 +1,7 @@
 // This was complicated enough to warrant a dedicated file.
 
 import {LogEntryDetails, TRN} from "./types";
+import {getAllocation} from "./db";
 
 // --- TRN ---
 
@@ -62,10 +63,12 @@ const REGEX_TO_EMOJI: [RegExp, string][] = [
     [new RegExp(/^MA[ _-]?60$/), "<:MA60:1499879986801283142>"],
 ];
 
-// Main function
+// Main functions
 
+// Normalises how units are written, without adding any emojis
 export function normaliseUnits(units: string): string {
-    units = units
+    return units
+        .trim()
         // Normalise formatting of individual metrocar units
         .replace(METROCAR_FORMATTING_REGEX, (_, __, unit) => `40${unit}`)
         // Normalise 555 units
@@ -84,6 +87,19 @@ export function normaliseUnits(units: string): string {
         // - 40xx \ 40xx
         // - 40xx\40xx
         .replace(METROCAR_COUPLING_REGEX3, "+");
+}
+
+// Normalises units being logged, unless that exact allocation is already logged
+//  (e.g. units chosen via autocomplete that were logged before units were normalised),
+//  so that existing allocations can still be updated or removed
+export function normaliseInputUnits(trn: TRN, units: string): string {
+    return getAllocation(trn, units) ? units : normaliseUnits(units);
+}
+
+// Normalises how units are written and prepends emojis representing them, for display
+export function unitsWithEmojis(units: string): string {
+    // Units logged before they were normalised on input might not be normalised yet
+    units = normaliseUnits(units);
 
     const emojis = [];
     nextUnit: for (const unit of units.split("+")) {
