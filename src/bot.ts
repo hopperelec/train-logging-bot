@@ -1386,6 +1386,7 @@ client.once('clientReady', async () => {
                     name: 'limit',
                     type: 4, // integer
                     description: 'Maximum number of results to list. If only `date-to` is specified, this applies in reverse.',
+                    minValue: 1,
                 },
                 {
                     name: 'trn',
