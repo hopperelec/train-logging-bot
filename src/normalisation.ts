@@ -58,7 +58,7 @@ const REGEX_TO_EMOJI: [RegExp, string][] = [
     [new RegExp(`^${NORMALISED_METROCAR}$`), METROCAR_EMOJI],
     [new RegExp(/^5550[\dx?]{2}$/), "<:class555:1499879618239529020>"],
     [new RegExp(/^BL[123x]$/), "<:batteryloco:1499879926386397204>"],
-    [new RegExp(/^MA[ -_]?60$/), "<:MA60:1499879986801283142>"],
+    [new RegExp(/^MA[ _-]?60$/), "<:MA60:1499879986801283142>"],
 ];
 
 // Main function
