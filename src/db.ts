@@ -2,6 +2,7 @@ import { PrismaClient } from "../generated/prisma/client";
 import {DailyLog, LogEntryDetails, LogTransaction} from "./types";
 import {NEW_DAY_HOUR} from "./bot";
 import {PrismaBunSqlite} from "prisma-adapter-bun-sqlite";
+import {normalizeDetails} from "./normalisation";
 
 let todaysLog: DailyLog = {};
 let dayId: number;
@@ -36,12 +37,12 @@ export async function loadTodaysLog(): Promise<string[]> {
                 trnAllocations = {};
                 todaysLog[allocation.trn] = trnAllocations;
             }
-            trnAllocations[allocation.units] = {
+            trnAllocations[allocation.units] = normalizeDetails({
                 sources: allocation.sources,
-                notes: allocation.notes || undefined,
-                index: allocation.index || undefined,
-                withdrawn: allocation.withdrawn || undefined,
-            };
+                notes: allocation.notes ?? undefined,
+                index: allocation.index,
+                withdrawn: allocation.withdrawn,
+            });
         }
         console.log(`Loaded existing log for ${dateStr}`);
         return existingDay.messages.map(m => m.id);

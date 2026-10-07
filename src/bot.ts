@@ -20,7 +20,7 @@ import {
     StringSelectMenuInteraction, ButtonComponent, ActionRow, MessageActionRowComponent, MessagePayload,
     InteractionUpdateOptions, DiscordAPIError, RESTJSONErrorCodes, Interaction, AttachmentPayload,
 } from 'discord.js';
-import {normalizeTRN, normalizeUnits} from "./normalisation";
+import {normalizeDetails, normalizeTRN, normalizeUnits} from "./normalisation";
 import {
     DailyLog,
     ExecutedSubmission, LogAddTransaction, LogEntryDetails, LogTransaction,
@@ -551,11 +551,13 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         const notes = interaction.options.get('notes')?.value as string | undefined;
         const index = interaction.options.get('index')?.value as number | undefined;
         const withdrawn = interaction.options.get('withdrawn')?.value as boolean | undefined;
+
+        const details = normalizeDetails({ sources, notes, index, withdrawn });
         const transaction: LogAddTransaction = {
             type: 'add',
             trn,
             units,
-            details: { sources, notes, index, withdrawn }
+            details
         };
         const submission: Submission = {
             user: interaction.user,
@@ -565,10 +567,10 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
         const existingAlloc = getAllocation(trn, units);
         if (existingAlloc) {
             if (
-                existingAlloc.sources === sources &&
-                existingAlloc.notes === notes &&
-                existingAlloc.index === index &&
-                !existingAlloc.withdrawn === !withdrawn
+                existingAlloc.sources === details.sources &&
+                existingAlloc.notes === details.notes &&
+                existingAlloc.index === details.index &&
+                existingAlloc.withdrawn === details.withdrawn
             ) {
                 await interaction.reply({
                     content: `❌ This allocation has already been logged with the exact same details.`,

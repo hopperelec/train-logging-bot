@@ -1,12 +1,25 @@
 // This was complicated enough to warrant a dedicated file.
 
-import {TRN} from "./types";
+import {LogEntryDetails, TRN} from "./types";
 
 // --- TRN ---
 
 const THREE_DIGIT_REGEX = new RegExp(/^t?\d{3}$/);
 export function normalizeTRN(trn: TRN): TRN {
     return THREE_DIGIT_REGEX.test(trn) ? `T${trn.slice(-3)}` : trn;
+}
+
+// --- Details ---
+
+// Removes default values, so that details are represented the same way regardless of where they came from,
+// and any unexpected properties (e.g. from the AI), which would cause adding them to the database to fail
+export function normalizeDetails(details: LogEntryDetails): LogEntryDetails {
+    return {
+        sources: details.sources,
+        notes: details.notes || undefined,
+        index: details.index || undefined,
+        withdrawn: details.withdrawn || undefined,
+    };
 }
 
 // --- Description ---
