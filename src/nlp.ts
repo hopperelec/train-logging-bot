@@ -48,27 +48,27 @@ if (GOOGLE_AI_API_KEY) {
         {
             name: 'Gemini 3.7 Flash',
             model: google('gemini-3.7-flash'),
-            priority: 10
+            priority: 6 // This keeps just timing out for 5 minutes
         },
         {
             name: 'Gemini 3.6 Flash',
             model: google('gemini-3.6-flash'),
-            priority: 9
+            priority: 10
         },
         {
             name: 'Gemini 3.5 Flash',
             model: google('gemini-3.5-flash'),
-            priority: 8
+            priority: 9
         },
         {
             name: 'Gemini 3 Flash',
             model: google('gemini-3-flash'),
-            priority: 7
+            priority: 8
         },
         {
             name: 'Gemini 2.5 Flash',
             model: google('gemini-2.5-flash'),
-            priority: 6
+            priority: 7
         },
         {
             name: 'Gemini 3.5 Flash Lite',

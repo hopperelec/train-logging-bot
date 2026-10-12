@@ -43,11 +43,11 @@ I understand that generative AI is controversial, so I want to emphasise that:
 - **for server owners:** the AI features are entirely optional and can be disabled by not providing any API keys
 
 The following models and providers are supported. When multiple API keys are provided and no model is explicitly selected by a user, they will be used in the order listed below, falling back to the next if one fails (e.g. due to rate limiting or quota exhaustion):
-- Gemini 3.7 Flash
 - Gemini 3.6 Flash
 - Gemini 3.5 Flash
 - Gemini 3 Flash
 - Gemini 2.5 Flash
+- Gemini 3.7 Flash
 - Gemini 3.8 Flash
 - gpt-oss-120b via Groq
 - gpt-oss-120b via OpenRouter
